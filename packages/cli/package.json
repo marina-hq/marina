@@ -13,7 +13,7 @@
     "directory": "packages/cli"
   },
   "bin": {
-    "marina": "./dist/marina.mjs"
+    "marina": "dist/marina.mjs"
   },
   "files": [
     "dist"
