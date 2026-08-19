@@ -2,6 +2,9 @@
 
 Deploy small internal apps to Marina Cloud.
 
+Source code and Marina's deployment skill live in the
+[marina-hq/marina](https://github.com/marina-hq/marina) repository.
+
 ```sh
 npm install -g @marina-cloud/cli
 marina setup
@@ -16,8 +19,7 @@ The saved credential lives in `~/.marina/profile` with user-only permissions.
 Use `marina profile` to inspect the active profile and `marina logout` to remove
 its credential.
 
-Setup automatically installs Marina's deployment skill when Codex or Claude is
-detected. Install or refresh it explicitly with:
+Install Marina deployment skills with:
 
 ```sh
 marina skills install

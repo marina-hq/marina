@@ -16,6 +16,7 @@ import { DEMO_MANIFEST, packDemo } from "./demo.ts";
 import { loginWithBrowser } from "./login.ts";
 import {
   bold,
+  createProgress,
   dim,
   failure,
   green,
@@ -97,14 +98,15 @@ async function deploy(dirArg: string | undefined, flags: { name?: string; app?: 
   }
 
   for (const secret of packed.skippedSecrets) say(dim(`skipped ${secret} — secrets stay local`));
-  say(
-    `uploading ${bold(name)} ${dim(`(${String(packed.fileCount)} files, ${String(Math.round(packed.totalBytes / 1024))} KB)`)}`,
-  );
+  const progress = createProgress();
+  const size = `${String(packed.fileCount)} files, ${String(Math.round(packed.totalBytes / 1024))} KB`;
+  progress.update("uploading", `Uploading ${name} (${size})`);
 
   let started;
   try {
     started = await api.startDeploy(packed.zip, name, target);
   } catch (error) {
+    progress.clear();
     // The linked app is gone (deleted, or a different Marina). Say so, since
     // "app not found" from a command with no app argument is a riddle.
     if (error instanceof ApiError && error.code === "not_found" && link) {
@@ -116,7 +118,21 @@ async function deploy(dirArg: string | undefined, flags: { name?: string; app?: 
     }
     throw error;
   }
-  const deployed = await api.pollDeploy(started.id);
+  const deployedAt = Date.now();
+  let deployed: api.DeployStatus;
+  try {
+    deployed = await api.pollDeploy(started.id, (current) => {
+      if (current.status !== "queued" && current.status !== "building") return;
+      const elapsed = Math.max(1, Math.round((Date.now() - deployedAt) / 1000));
+      const message =
+        current.status === "queued"
+          ? `Waiting for a deploy worker (${String(elapsed)}s)`
+          : `Building and verifying (${String(elapsed)}s)`;
+      progress.update(current.status, message);
+    });
+  } finally {
+    progress.clear();
+  }
 
   if (deployed.status === "refused" && deployed.refusal) {
     say(`${red("refused")} ${deployed.refusal.message}`);

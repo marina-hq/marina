@@ -115,9 +115,13 @@ export async function startDeploy(
   return res.deploy;
 }
 
-export async function pollDeploy(id: string): Promise<DeployStatus> {
+export async function pollDeploy(
+  id: string,
+  onProgress: (deploy: DeployStatus) => void = () => undefined,
+): Promise<DeployStatus> {
   for (;;) {
     const { deploy } = await request<{ deploy: DeployStatus }>(`/v1/deploys/${id}`);
+    onProgress(deploy);
     if (deploy.status !== "queued" && deploy.status !== "building") return deploy;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }

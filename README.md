@@ -5,7 +5,7 @@ contains Marina's public developer tools and agent skills.
 
 ## CLI
 
-Install the CLI and sign in through your browser:
+Install [@marina-cloud/cli](https://www.npmjs.com/package/@marina-cloud/cli) and sign in through your browser:
 
 ```sh
 npm install -g @marina-cloud/cli
@@ -49,7 +49,7 @@ Set an app's portable identity in `marina.json`:
 
 ## Repository
 
-- `packages/cli` — the `@marina-cloud/cli` npm package
+- `packages/cli` — the [@marina-cloud/cli](https://www.npmjs.com/package/@marina-cloud/cli) npm package
 - `skills` — skills for coding agents
 
 ## License

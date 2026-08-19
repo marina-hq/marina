@@ -26,6 +26,34 @@ export function note(line: string): void {
   console.error(line);
 }
 
+/** One updating terminal line for humans; one JSON event per phase for agents
+ * and redirected output. Final command output remains untouched. */
+export function createProgress(): {
+  update: (phase: string, line: string) => void;
+  clear: () => void;
+} {
+  let active = false;
+  let lastPhase: string | null = null;
+  let frame = 0;
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const interactive = process.stderr.isTTY === true && !json;
+  return {
+    update(phase, line) {
+      if (interactive) {
+        process.stderr.write(`\r\u001b[2K${frames[frame++ % frames.length]} ${line}`);
+        active = true;
+      } else if (phase !== lastPhase) {
+        console.error(json ? JSON.stringify({ type: "progress", phase, message: line }) : line);
+      }
+      lastPhase = phase;
+    },
+    clear() {
+      if (active) process.stderr.write("\r\u001b[2K");
+      active = false;
+    },
+  };
+}
+
 /** The machine result. Printed only in --json, exactly once per run. */
 export function result(payload: object): void {
   if (json) console.log(JSON.stringify({ schema_version: 1, ok: true, ...payload }, null, 2));

@@ -1,6 +1,6 @@
 {
   "name": "@marina-cloud/cli",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Command-line client for Marina Cloud",
   "homepage": "https://github.com/marina-hq/marina#readme",
   "bugs": {
