@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0966c7" />
+    <title>Hello Marina</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-version="4">
+    <main class="canvas" id="canvas" aria-label="Interactive cut-paper collage">
+      <header>
+        <span class="brand">Marina</span>
+        <div class="controls">
+          <button id="add-piece" type="button" aria-label="Add another piece" title="Add piece">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <button id="shuffle" type="button" aria-label="Shuffle the collage" title="Shuffle">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 7h3.2c4.6 0 5.1 10 9.6 10H20m0 0-3-3m3 3-3 3M4 17h3.2c1.8 0 3-1.5 4-3.3M20 7h-3.2c-1.4 0-2.5.9-3.4 2.2M20 7l-3-3m3 3-3 3"
+              />
+            </svg>
+          </button>
+          <button id="reset" type="button" aria-label="Reset the collage" title="Reset">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5.2 8.2A8 8 0 1 1 4 14m1.2-5.8V4m0 4.2H9.4" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <button class="piece piece-sun" data-piece="sun" aria-label="Yellow sun cutout">
+        <svg viewBox="0 0 200 200" aria-hidden="true"><circle cx="100" cy="100" r="98" /></svg>
+      </button>
+
+      <button class="piece piece-cape" data-piece="cape" aria-label="Coral cape cutout">
+        <svg viewBox="0 0 420 360" aria-hidden="true">
+          <path
+            d="M16 352C55 257 116 203 171 167c66-43 98-94 113-155 58 41 98 91 120 150v190H16Z"
+          />
+        </svg>
+      </button>
+
+      <button class="piece piece-leaf" data-piece="leaf" aria-label="Green leaf cutout">
+        <svg viewBox="0 0 250 360" aria-hidden="true">
+          <path
+            d="M118 358c-5-48-4-93 4-137-28 19-57 25-87 20 4-38 30-74 78-108-42-5-74-23-95-54 33-31 75-43 125-34C156 21 177 6 207 0c18 45 14 88-12 130 27-8 45-4 55 12-14 36-43 66-87 90-13 46-18 88-16 126h-29Z"
+          />
+        </svg>
+      </button>
+
+      <button class="piece piece-bloom" data-piece="bloom" aria-label="Pink flower cutout">
+        <svg viewBox="0 0 260 260" aria-hidden="true">
+          <path
+            d="M128 87C105 30 67 7 44 26 21 44 38 83 91 111 29 111-5 137 10 165c16 28 60 14 105-28-17 58-1 98 31 96 31-2 36-48 5-100 48 38 91 40 98 9 8-31-28-55-88-57 50-36 60-79 31-91-29-13-54 19-64 93Z"
+          />
+          <circle class="bloom-center" cx="130" cy="120" r="23" />
+        </svg>
+      </button>
+
+      <button class="piece piece-fan" data-piece="fan" aria-label="Cream fan cutout">
+        <svg viewBox="0 0 310 300" aria-hidden="true">
+          <path d="M154 286 12 154C49 75 92 27 154 3c62 24 105 72 142 151L154 286Z" />
+          <path
+            class="piece-line"
+            d="M154 276V15m0 261L45 126m109 150 109-150m-109 150L91 55m63 221 63-221"
+          />
+        </svg>
+      </button>
+
+      <button class="piece piece-star" data-piece="star" aria-label="Yellow star cutout">
+        <svg viewBox="0 0 260 260" aria-hidden="true">
+          <path
+            d="m130 0 21 82 63-57-31 80 77 5-74 31 54 63-71-39-10 82-16-80-66 51 38-74-80-13 81-23L60 40l69 43L130 0Z"
+          />
+        </svg>
+      </button>
+
+      <button class="piece piece-fish" data-piece="fish" aria-label="White fish cutout">
+        <svg viewBox="0 0 330 180" aria-hidden="true">
+          <path d="M12 92c63-74 165-94 245-32l61-45-17 74 17 75-62-43C173 185 72 164 12 92Z" />
+          <circle class="fish-eye" cx="212" cy="72" r="8" />
+        </svg>
+      </button>
+
+      <button class="piece piece-sail" data-piece="sail" aria-label="Sailboat cutout">
+        <svg viewBox="0 0 250 330" aria-hidden="true">
+          <path class="sail-mast" d="M129 17v242" />
+          <path class="sail-main" d="M119 24 25 242h94V24Z" />
+          <path class="sail-side" d="m139 72 82 170h-82V72Z" />
+          <path class="sail-hull" d="M15 260h220l-37 52H54l-39-52Z" />
+        </svg>
+      </button>
+
+      <button class="piece piece-ribbon" data-piece="ribbon" aria-label="Red ribbon cutout">
+        <svg viewBox="0 0 300 430" aria-hidden="true">
+          <path
+            d="M37 421c15-76 60-125 135-147-79-14-129-53-150-117 60-26 119-17 176 28C168 119 177 59 225 4c52 43 69 101 51 174-12 50-54 93-125 130 41 16 81 53 119 111-65 18-120 1-164-51-7 15-13 33-18 53H37Z"
+          />
+        </svg>
+      </button>
+
+      <div class="transform-ui" id="transform-ui" hidden>
+        <button
+          class="transform-handle"
+          id="transform-handle"
+          type="button"
+          aria-label="Drag to scale and rotate selected piece"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 4H4v4m0-4 5 5m7 11h4v-4m0 4-5-5M20 8V4h-4m4 0-5 5M4 16v4h4m-4 0 5-5" />
+          </svg>
+        </button>
+        <button
+          class="delete-handle"
+          id="delete-piece"
+          type="button"
+          aria-label="Delete selected piece"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 7h14M9 7V4h6v3m-8 0 1 13h8l1-13M10 10v7m4-7v7" />
+          </svg>
+        </button>
+      </div>
+
+      <p class="hint">Drag the pieces</p>
+      <div class="grain" aria-hidden="true"></div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

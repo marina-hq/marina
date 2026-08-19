@@ -1,0 +1,4 @@
+interface:
+  display_name: "Marina Deploy"
+  short_description: "Build and deploy apps to Marina Cloud"
+  default_prompt: "Use $marina-deploy to deploy this project to Marina Cloud."

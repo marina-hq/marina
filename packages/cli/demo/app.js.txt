@@ -1,0 +1,256 @@
+const canvas = document.querySelector("#canvas");
+const originalPieces = [...document.querySelectorAll(".piece")];
+const pieces = [...originalPieces];
+const transformUI = document.querySelector("#transform-ui");
+const transformHandle = document.querySelector("#transform-handle");
+const initial = originalPieces.map((piece) => ({
+  piece,
+  x: getComputedStyle(piece).getPropertyValue("--x").trim(),
+  y: getComputedStyle(piece).getPropertyValue("--y").trim(),
+  rotation: getComputedStyle(piece).getPropertyValue("--rotation").trim(),
+  scale: getComputedStyle(piece).getPropertyValue("--scale").trim() || "1",
+}));
+const addedColors = ["#ff5e78", "#f03f30", "#0f7449", "#dfff3f", "#fff8e8", "#93cfff"];
+let selectedPiece;
+let handleAnchor;
+let topLayer = 10;
+let transformFrame;
+
+function numberStyle(piece, name, fallback = 0) {
+  return Number.parseFloat(getComputedStyle(piece).getPropertyValue(name)) || fallback;
+}
+
+function place(piece, x, y, rotation) {
+  piece.style.setProperty("--x", `${Math.max(3, Math.min(97, x))}%`);
+  piece.style.setProperty("--y", `${Math.max(4, Math.min(96, y))}%`);
+  piece.style.setProperty("--rotation", `${rotation}deg`);
+}
+
+function setScale(piece, scale) {
+  const next = Math.max(0.45, Math.min(1.8, scale));
+  piece.style.setProperty("--scale", `${next}`);
+}
+
+function updateTransformUI() {
+  if (!selectedPiece || selectedPiece.hidden) return;
+  const canvasBounds = canvas.getBoundingClientRect();
+  const pieceBounds = selectedPiece.getBoundingClientRect();
+  const centerX = pieceBounds.left - canvasBounds.left + pieceBounds.width / 2;
+  const centerY = pieceBounds.top - canvasBounds.top + pieceBounds.height / 2;
+  const defaultAnchor = { x: pieceBounds.width / 2, y: pieceBounds.height / 2 };
+  const anchor = handleAnchor || defaultAnchor;
+  const left = Math.max(20, Math.min(canvasBounds.width - 60, centerX + anchor.x));
+  const top = Math.max(48, Math.min(canvasBounds.height - 48, centerY + anchor.y));
+  transformUI.style.left = `${left}px`;
+  transformUI.style.top = `${top}px`;
+}
+
+function queueTransformUIUpdate() {
+  if (transformFrame) return;
+  transformFrame = requestAnimationFrame(() => {
+    transformFrame = undefined;
+    updateTransformUI();
+  });
+}
+
+function followPointer(event) {
+  const canvasBounds = canvas.getBoundingClientRect();
+  const left = Math.max(20, Math.min(canvasBounds.width - 60, event.clientX - canvasBounds.left));
+  const top = Math.max(48, Math.min(canvasBounds.height - 48, event.clientY - canvasBounds.top));
+  transformUI.style.left = `${left}px`;
+  transformUI.style.top = `${top}px`;
+  if (selectedPiece) {
+    const pieceBounds = selectedPiece.getBoundingClientRect();
+    const centerX = pieceBounds.left - canvasBounds.left + pieceBounds.width / 2;
+    const centerY = pieceBounds.top - canvasBounds.top + pieceBounds.height / 2;
+    handleAnchor = { x: left - centerX, y: top - centerY };
+  }
+}
+
+function selectPiece(piece) {
+  if (piece && piece === selectedPiece) {
+    transformUI.hidden = false;
+    queueTransformUIUpdate();
+    return;
+  }
+  selectedPiece?.classList.remove("selected");
+  selectedPiece = piece;
+  handleAnchor = undefined;
+  if (!piece) {
+    transformUI.hidden = true;
+    return;
+  }
+  piece.classList.add("selected");
+  transformUI.hidden = false;
+  requestAnimationFrame(updateTransformUI);
+}
+
+function makeInteractive(piece) {
+  let activePointer;
+
+  piece.addEventListener("pointerdown", (event) => {
+    activePointer = event.pointerId;
+    piece.setPointerCapture(activePointer);
+    piece.classList.add("dragging");
+    piece.style.zIndex = `${++topLayer}`;
+    selectPiece(piece);
+  });
+
+  piece.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== activePointer) return;
+    const bounds = canvas.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width) * 100;
+    const y = ((event.clientY - bounds.top) / bounds.height) * 100;
+    place(piece, x, y, numberStyle(piece, "--rotation"));
+    queueTransformUIUpdate();
+  });
+
+  const release = (event) => {
+    if (event.pointerId !== activePointer) return;
+    piece.classList.remove("dragging");
+    activePointer = undefined;
+  };
+  piece.addEventListener("pointerup", release);
+  piece.addEventListener("pointercancel", release);
+
+  piece.addEventListener("dblclick", () => {
+    piece.style.setProperty("--rotation", `${numberStyle(piece, "--rotation") + 45}deg`);
+    updateTransformUI();
+  });
+
+  piece.addEventListener("keydown", (event) => {
+    const moves = { ArrowLeft: [-2, 0], ArrowRight: [2, 0], ArrowUp: [0, -2], ArrowDown: [0, 2] };
+    if (!moves[event.key]) return;
+    event.preventDefault();
+    const [dx, dy] = moves[event.key];
+    place(piece, numberStyle(piece, "--x") + dx, numberStyle(piece, "--y") + dy, numberStyle(piece, "--rotation"));
+    updateTransformUI();
+  });
+}
+
+originalPieces.forEach(makeInteractive);
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.target === canvas) selectPiece(undefined);
+});
+document.querySelector("#add-piece").addEventListener("click", () => {
+  const source = originalPieces[Math.floor(Math.random() * originalPieces.length)];
+  const piece = source.cloneNode(true);
+  piece.dataset.added = "true";
+  piece.dataset.piece = `${source.dataset.piece}-copy`;
+  piece.setAttribute("aria-label", `Added ${source.dataset.piece} cutout`);
+  piece.classList.remove("selected", "dragging");
+  piece.style.zIndex = `${++topLayer}`;
+  piece.style.setProperty("--enter-delay", "0ms");
+  piece.style.setProperty("--added-color", addedColors[Math.floor(Math.random() * addedColors.length)]);
+  place(piece, 10 + Math.random() * 80, 12 + Math.random() * 76, -180 + Math.random() * 360);
+  setScale(piece, 0.55 + Math.random() * 0.8);
+  canvas.insertBefore(piece, transformUI);
+  pieces.push(piece);
+  makeInteractive(piece);
+  selectPiece(piece);
+  piece.focus();
+});
+
+transformHandle.addEventListener("pointerdown", (event) => {
+  if (!selectedPiece) return;
+  event.preventDefault();
+  event.stopPropagation();
+  transformHandle.setPointerCapture(event.pointerId);
+  selectedPiece.classList.add("transforming");
+
+  const bounds = selectedPiece.getBoundingClientRect();
+  const centerX = bounds.left + bounds.width / 2;
+  const centerY = bounds.top + bounds.height / 2;
+  const startDistance = Math.max(20, Math.hypot(event.clientX - centerX, event.clientY - centerY));
+  const startScale = numberStyle(selectedPiece, "--scale", 1);
+  let rotation = numberStyle(selectedPiece, "--rotation");
+  let lastAngle = Math.atan2(event.clientY - centerY, event.clientX - centerX);
+
+  const transform = (moveEvent) => {
+    if (moveEvent.pointerId !== event.pointerId || !selectedPiece) return;
+    const distance = Math.hypot(moveEvent.clientX - centerX, moveEvent.clientY - centerY);
+    const angle = Math.atan2(moveEvent.clientY - centerY, moveEvent.clientX - centerX);
+    let angleDelta = angle - lastAngle;
+    if (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
+    if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
+    rotation += (angleDelta * 180) / Math.PI;
+    lastAngle = angle;
+    setScale(selectedPiece, startScale * (distance / startDistance));
+    selectedPiece.style.setProperty("--rotation", `${rotation}deg`);
+    followPointer(moveEvent);
+  };
+
+  const finish = (upEvent) => {
+    if (upEvent.pointerId !== event.pointerId) return;
+    selectedPiece?.classList.remove("transforming");
+    transformHandle.removeEventListener("pointermove", transform);
+    transformHandle.removeEventListener("pointerup", finish);
+    transformHandle.removeEventListener("pointercancel", finish);
+    queueTransformUIUpdate();
+  };
+
+  transformHandle.addEventListener("pointermove", transform);
+  transformHandle.addEventListener("pointerup", finish);
+  transformHandle.addEventListener("pointercancel", finish);
+});
+
+transformHandle.addEventListener("keydown", (event) => {
+  if (!selectedPiece) return;
+  if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+    event.preventDefault();
+    setScale(selectedPiece, numberStyle(selectedPiece, "--scale", 1) + (event.key === "ArrowUp" ? 0.05 : -0.05));
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    event.preventDefault();
+    selectedPiece.style.setProperty(
+      "--rotation",
+      `${numberStyle(selectedPiece, "--rotation") + (event.key === "ArrowRight" ? 5 : -5)}deg`,
+    );
+  } else {
+    return;
+  }
+  requestAnimationFrame(updateTransformUI);
+});
+
+document.querySelector("#delete-piece").addEventListener("click", () => {
+  if (!selectedPiece) return;
+  const piece = selectedPiece;
+  selectPiece(undefined);
+  if (piece.dataset.added === "true") {
+    pieces.splice(pieces.indexOf(piece), 1);
+    piece.remove();
+    return;
+  }
+  piece.hidden = true;
+});
+
+document.querySelector("#shuffle").addEventListener("click", () => {
+  selectPiece(undefined);
+  canvas.classList.add("shuffling");
+  pieces
+    .filter((piece) => !piece.hidden)
+    .forEach((piece) => place(piece, 8 + Math.random() * 84, 12 + Math.random() * 76, -180 + Math.random() * 360));
+  setTimeout(() => canvas.classList.remove("shuffling"), 850);
+});
+
+window.addEventListener("resize", updateTransformUI);
+
+document.querySelector("#reset").addEventListener("click", () => {
+  canvas.classList.add("shuffling");
+  selectPiece(undefined);
+  for (let index = pieces.length - 1; index >= 0; index -= 1) {
+    if (pieces[index].dataset.added === "true") {
+      pieces[index].remove();
+      pieces.splice(index, 1);
+    }
+  }
+  initial.forEach(({ piece, x, y, rotation, scale }) => {
+    piece.hidden = false;
+    piece.style.setProperty("--x", x);
+    piece.style.setProperty("--y", y);
+    piece.style.setProperty("--rotation", rotation);
+    piece.style.setProperty("--scale", scale);
+    piece.style.removeProperty("z-index");
+  });
+  setTimeout(() => canvas.classList.remove("shuffling"), 850);
+});

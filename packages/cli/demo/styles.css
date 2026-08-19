@@ -1,0 +1,471 @@
+:root {
+  --sea: #0966c7;
+  --deep-sea: #064990;
+  --coral: #ff5e78;
+  --red: #f03f30;
+  --leaf: #0f7449;
+  --acid: #dfff3f;
+  --cream: #fff8e8;
+  --sky: #93cfff;
+  color: var(--cream);
+  background: var(--sea);
+  font-family: Inter, "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+.canvas {
+  position: relative;
+  width: 100vw;
+  height: 100svh;
+  min-height: 560px;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--sea);
+}
+
+.canvas::before {
+  position: absolute;
+  z-index: -3;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background:
+    radial-gradient(circle at 18% 12%, rgb(255 255 255 / 7%) 0 0.8px, transparent 1.1px),
+    linear-gradient(145deg, rgb(255 255 255 / 4%), transparent 45%);
+  background-size:
+    6px 6px,
+    auto;
+}
+
+.grain {
+  position: absolute;
+  z-index: 50;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+  mix-blend-mode: soft-light;
+}
+
+header {
+  position: absolute;
+  z-index: 100;
+  top: clamp(20px, 3.2vw, 44px);
+  right: clamp(20px, 3.2vw, 44px);
+  left: clamp(20px, 3.2vw, 44px);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  animation: chrome-arrive 500ms ease-out 750ms both;
+}
+
+.brand {
+  color: rgb(255 248 232 / 92%);
+  font-size: 1.05rem;
+  font-weight: 720;
+  letter-spacing: -0.04em;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.controls button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid rgb(255 248 232 / 44%);
+  border-radius: 50%;
+  color: var(--cream);
+  background: rgb(4 58 128 / 15%);
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.controls button:hover {
+  color: var(--deep-sea);
+  background: var(--cream);
+  transform: rotate(-5deg);
+}
+
+.controls svg {
+  width: 18px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.controls button:focus-visible,
+.piece:focus-visible {
+  outline: 3px solid var(--acid);
+  outline-offset: 4px;
+}
+
+.piece {
+  --x: 50%;
+  --y: 50%;
+  --rotation: 0deg;
+  --scale: 1;
+  position: absolute;
+  z-index: 5;
+  top: var(--y);
+  left: var(--x);
+  width: 180px;
+  padding: 0;
+  border: 0;
+  color: var(--cream);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  transform: translate(-50%, -50%) rotate(var(--rotation)) scale(var(--scale));
+  transform-origin: center;
+  transition:
+    filter 160ms ease,
+    transform 500ms cubic-bezier(0.22, 0.8, 0.25, 1);
+}
+
+.piece svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+  fill: currentcolor;
+  filter: drop-shadow(3px 8px 4px rgb(4 42 93 / 14%));
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: piece-arrive 760ms cubic-bezier(0.2, 0.8, 0.24, 1) var(--enter-delay, 0ms) both;
+}
+
+.piece:hover {
+  z-index: 30;
+  filter: brightness(1.06) saturate(1.03);
+}
+
+.piece.selected,
+.piece.dragging,
+.piece.transforming {
+  z-index: 40;
+  cursor: grabbing;
+  transition: filter 160ms ease;
+  filter: drop-shadow(8px 14px 8px rgb(3 31 74 / 20%));
+}
+
+.piece.selected svg {
+  filter: drop-shadow(0 0 0.8px rgb(255 248 232 / 95%)) drop-shadow(3px 8px 4px rgb(4 42 93 / 14%));
+}
+
+.piece[data-added="true"] {
+  color: var(--added-color);
+}
+
+.piece[hidden] {
+  display: none;
+}
+
+.piece-sun {
+  --enter-delay: 40ms;
+  --x: 14%;
+  --y: 24%;
+  --rotation: -4deg;
+  width: clamp(120px, 13vw, 210px);
+  color: var(--acid);
+}
+
+.piece-cape {
+  --enter-delay: 100ms;
+  --x: 89%;
+  --y: 13%;
+  --rotation: 13deg;
+  width: clamp(360px, 39vw, 650px);
+  color: var(--coral);
+}
+
+.piece-leaf {
+  --enter-delay: 460ms;
+  --x: 12%;
+  --y: 78%;
+  --rotation: -22deg;
+  width: clamp(150px, 17vw, 275px);
+  color: var(--leaf);
+}
+
+.piece-bloom {
+  --enter-delay: 520ms;
+  --x: 29%;
+  --y: 86%;
+  --rotation: 17deg;
+  width: clamp(130px, 15vw, 230px);
+  color: var(--red);
+}
+
+.bloom-center {
+  fill: var(--acid);
+}
+
+.piece-fan {
+  --enter-delay: 400ms;
+  --x: 58%;
+  --y: 69%;
+  --rotation: -9deg;
+  width: clamp(160px, 20vw, 320px);
+  color: var(--cream);
+}
+
+.piece-line {
+  fill: none;
+  stroke: var(--coral);
+  stroke-width: 6px;
+}
+
+.piece-star {
+  --enter-delay: 280ms;
+  --x: 71%;
+  --y: 20%;
+  --rotation: 11deg;
+  width: clamp(90px, 10vw, 160px);
+  color: var(--acid);
+}
+
+.piece-fish {
+  --enter-delay: 160ms;
+  --x: 31%;
+  --y: 37%;
+  --rotation: -6deg;
+  width: clamp(190px, 22vw, 350px);
+  color: var(--sky);
+}
+
+.fish-eye {
+  fill: var(--deep-sea);
+}
+
+.piece-sail {
+  --enter-delay: 220ms;
+  --x: 49%;
+  --y: 30%;
+  --rotation: 4deg;
+  width: clamp(105px, 12vw, 185px);
+}
+
+.sail-mast {
+  fill: none;
+  stroke: var(--deep-sea);
+  stroke-width: 7px;
+}
+
+.sail-main {
+  fill: var(--cream);
+}
+
+.sail-side {
+  fill: var(--acid);
+}
+
+.sail-hull {
+  fill: var(--cream);
+}
+
+.piece-ribbon {
+  --enter-delay: 340ms;
+  --x: 82%;
+  --y: 77%;
+  --rotation: 25deg;
+  width: clamp(150px, 18vw, 285px);
+  color: var(--red);
+}
+
+.hint {
+  position: absolute;
+  z-index: 100;
+  bottom: clamp(18px, 3vw, 38px);
+  margin: 0;
+  color: rgb(255 248 232 / 64%);
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.hint {
+  right: clamp(20px, 3.2vw, 44px);
+  animation: chrome-arrive 500ms ease-out 900ms both;
+}
+
+.transform-ui {
+  position: absolute;
+  z-index: 120;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+  transform: translate(-18px, -50%);
+}
+
+.transform-ui[hidden] {
+  display: none;
+}
+
+.transform-ui button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgb(255 248 232 / 55%);
+  border-radius: 50%;
+  color: var(--cream);
+  background: rgb(4 58 128 / 70%);
+  box-shadow: 0 7px 18px rgb(3 31 74 / 22%);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  backdrop-filter: blur(8px);
+}
+
+.transform-ui button:hover {
+  color: var(--deep-sea);
+  background: var(--cream);
+}
+
+.transform-ui .delete-handle {
+  width: 30px;
+  height: 30px;
+  color: #ffd2cc;
+}
+
+.transform-ui .delete-handle:hover {
+  color: white;
+  background: #d94737;
+}
+
+.transform-ui svg {
+  width: 16px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.transform-ui button:focus-visible {
+  outline: 2px solid var(--acid);
+  outline-offset: 2px;
+}
+
+.canvas.shuffling .piece {
+  transition-duration: 800ms;
+}
+
+@keyframes piece-arrive {
+  0% {
+    opacity: 0;
+    transform: translateY(48px) rotate(-8deg) scale(0.72);
+  }
+
+  68% {
+    opacity: 1;
+    transform: translateY(-4px) rotate(1.5deg) scale(1.025);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(0) scale(1);
+  }
+}
+
+@keyframes chrome-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 700px) {
+  .canvas {
+    min-height: 500px;
+  }
+
+  .piece-cape {
+    --x: 98%;
+    --y: 18%;
+    width: 340px;
+  }
+
+  .piece-sun {
+    --x: 17%;
+    --y: 18%;
+  }
+
+  .piece-fish {
+    --x: 29%;
+    --y: 41%;
+  }
+
+  .piece-sail {
+    --x: 65%;
+    --y: 38%;
+  }
+
+  .piece-fan {
+    --x: 52%;
+    --y: 68%;
+  }
+
+  .piece-leaf {
+    --x: 8%;
+    --y: 83%;
+  }
+
+  .piece-bloom {
+    --x: 29%;
+    --y: 90%;
+  }
+
+  .piece-ribbon {
+    --x: 86%;
+    --y: 84%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

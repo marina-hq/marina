@@ -1,0 +1,22 @@
+{
+  "name": "marina",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @marina-cloud/cli build",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "test": "pnpm --filter @marina-cloud/cli test",
+    "typecheck": "pnpm --filter @marina-cloud/cli typecheck",
+    "check": "pnpm fmt:check && pnpm lint && pnpm test && pnpm typecheck && pnpm build"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.63.0",
+    "oxlint": "1.78.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.28.1"
+}

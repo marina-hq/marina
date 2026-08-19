@@ -1,0 +1,41 @@
+{
+  "name": "@marina-cloud/cli",
+  "version": "0.1.0",
+  "description": "Command-line client for Marina Cloud",
+  "homepage": "https://github.com/marina-hq/marina#readme",
+  "bugs": {
+    "url": "https://github.com/marina-hq/marina/issues"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marina-hq/marina.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "marina": "./dist/marina.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --loader:.md=text --loader:.yaml=text --loader:.html=text --loader:.css=text --loader:.txt=text --outfile=dist/marina.mjs --banner:js=\"#!/usr/bin/env node\" && chmod +x dist/marina.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm build && node --experimental-strip-types --test src/*.test.ts",
+    "prepack": "pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.25.0",
+    "fflate": "^0.8.2",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
