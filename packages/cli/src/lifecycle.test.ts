@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -12,7 +12,10 @@ const codexHome = join(temporary, "codex");
 const claudeHome = join(temporary, "claude");
 const binary = resolve("dist/marina.mjs");
 
-function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
+function run(
+  args: string[],
+  environment: Record<string, string | undefined> = {},
+): { status: number | null; stdout: string; stderr: string } {
   const execution = spawnSync(process.execPath, [binary, ...args], {
     encoding: "utf8",
     env: {
@@ -21,6 +24,8 @@ function run(args: string[]): { status: number | null; stdout: string; stderr: s
       CODEX_HOME: codexHome,
       CLAUDE_CONFIG_DIR: claudeHome,
       MARINA_DISABLE_UPDATE_CHECK: "1",
+      MARINA_DISABLE_CONTROL_PLANE_DISCOVERY: "1",
+      ...environment,
     },
   });
   return { status: execution.status, stdout: execution.stdout, stderr: execution.stderr };
@@ -29,7 +34,10 @@ function run(args: string[]): { status: number | null; stdout: string; stderr: s
 const json = (value: string) => JSON.parse(value) as Record<string, unknown>;
 
 describe("CLI profile and skill lifecycle", () => {
-  before(() => mkdirSync(codexHome, { recursive: true }));
+  before(() => {
+    mkdirSync(marinaHome, { recursive: true });
+    mkdirSync(codexHome, { recursive: true });
+  });
   after(() => rmSync(temporary, { recursive: true, force: true }));
 
   it("never installs a skill unless explicitly requested", () => {
@@ -41,20 +49,91 @@ describe("CLI profile and skill lifecycle", () => {
     assert.equal(existsSync(installed), false);
   });
 
-  it("stores and removes a permission-locked profile credential", () => {
-    const setup = run(["setup", "--token", "mar_test_only", "--json"]);
-    assert.equal(setup.status, 0, setup.stderr);
-    assert.equal(json(setup.stdout).signed_in, true);
-
+  it("reads and removes a permission-locked profile credential", () => {
     const profilePath = join(marinaHome, "profile");
+    writeFileSync(
+      profilePath,
+      `${JSON.stringify({ api: "https://marina.cloud", token: "mar_test_only" })}\n`,
+      { mode: 0o600 },
+    );
     assert.equal((statSync(profilePath).mode & 0o777).toString(8), "600");
-    assert.equal(JSON.parse(readFileSync(profilePath, "utf8")).token, "mar_test_only");
-    assert.doesNotMatch(setup.stdout, /mar_test_only/);
+    const profile = run(["profile", "--json"]);
+    assert.equal(profile.status, 0, profile.stderr);
+    assert.equal(json(profile.stdout).signed_in, true);
+    assert.equal(json(profile.stdout).api, "https://marina.cloud");
+    assert.doesNotMatch(profile.stdout, /mar_test_only/);
 
     const logout = run(["logout", "--json"]);
     assert.equal(logout.status, 0, logout.stderr);
     assert.equal(json(logout.stdout).signed_in, false);
     assert.equal(existsSync(profilePath), false);
+  });
+
+  it("uses the hidden profile control plane and scopes its credential", () => {
+    const profilePath = join(marinaHome, "profile");
+    writeFileSync(
+      profilePath,
+      `${JSON.stringify({
+        control_plane_host: "https://staging.marina.cloud",
+        control_plane: {
+          host: "https://staging.marina.cloud",
+          checked_at: new Date().toISOString(),
+          api_url: "https://marina-staging-api.example.run.app",
+          dashboard_url: "https://staging.marina.cloud",
+          latest_cli_version: null,
+        },
+        api: "https://marina-staging-api.example.run.app",
+        token: "mar_staging_only",
+      })}\n`,
+    );
+
+    const staging = run(["profile", "--json"]);
+    assert.equal(staging.status, 0, staging.stderr);
+    assert.equal(json(staging.stdout).api, "https://marina-staging-api.example.run.app");
+    assert.equal(json(staging.stdout).signed_in, true);
+
+    const production = run(["profile", "--json"], { MARINA_API: "https://marina.cloud" });
+    assert.equal(production.status, 0, production.stderr);
+    assert.equal(json(production.stdout).api, "https://marina.cloud");
+    assert.equal(json(production.stdout).signed_in, false);
+  });
+
+  it("can set up skills and deploy the demo as one JSON command", () => {
+    writeFileSync(join(marinaHome, "profile"), "{}\n");
+    const fixture = resolve("src/mock-fetch.test-fixture.mjs");
+    const setup = run(["setup", "--skills", "--deploy-demo", "--json"], {
+      MARINA_TOKEN: "mar_test_only",
+      MARINA_DISABLE_CONTROL_PLANE_DISCOVERY: "0",
+      NODE_OPTIONS: `--import=${fixture}`,
+    });
+    assert.equal(setup.status, 0, setup.stderr);
+    const payload = json(setup.stdout);
+    assert.equal(payload.command, "setup");
+    assert.equal(payload.signed_in, true);
+    assert.equal(payload.api, "https://marina-direct-api.example.run.app");
+    assert.equal((payload.skills as unknown[]).length, 1);
+    assert.equal((payload.deploy as Record<string, unknown>).demo, true);
+    assert.equal((payload.deploy as Record<string, unknown>).live, true);
+  });
+
+  it("shows the discovered update notice at most once per day", () => {
+    writeFileSync(
+      join(marinaHome, "profile"),
+      `${JSON.stringify({
+        control_plane: {
+          host: "https://marina.cloud",
+          checked_at: new Date().toISOString(),
+          api_url: "https://marina-direct-api.example.run.app",
+          dashboard_url: "https://marina.cloud",
+          latest_cli_version: "99.0.0",
+        },
+      })}\n`,
+    );
+    const environment = { MARINA_DISABLE_UPDATE_CHECK: "" };
+    const first = run(["profile", "--json"], environment);
+    assert.match(first.stderr, /Marina CLI 99\.0\.0 is available/);
+    const second = run(["profile", "--json"], environment);
+    assert.doesNotMatch(second.stderr, /is available/);
   });
 
   it("can explicitly install the skill for every supported agent", () => {

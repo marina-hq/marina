@@ -11,9 +11,15 @@ marina setup
 marina deploy
 ```
 
+For a complete first run, including the deployment skill and demo app:
+
+```sh
+npm install -g @marina-cloud/cli && marina setup --skills --deploy-demo --json
+```
+
 `marina setup` opens Clerk in the browser and delivers the resulting API key
-directly back to the CLI. For unattended environments, `MARINA_TOKEN` or
-`marina setup --token mar_…` is the explicit fallback.
+directly back to the CLI. For unattended environments, `MARINA_TOKEN` is the
+process-only credential override.
 
 The saved credential lives in `~/.marina/profile` with user-only permissions.
 Use `marina profile` to inspect the active profile and `marina logout` to remove
@@ -26,8 +32,9 @@ marina skills install
 marina skills install --agent codex
 ```
 
-The CLI checks npm at most once per day and prints an advisory update command
-when a newer release is available. It never updates itself.
+The CLI reads release metadata from Marina's control plane and prints an
+advisory update command at most once per day when a newer release is available.
+It never updates itself.
 
 ## Agent-friendly output
 

@@ -1,8 +1,7 @@
 import packageJson from "../package.json" with { type: "json" };
-import { readProfile, writeProfile } from "./config.ts";
+import { latestCliVersion, readProfile, writeProfile } from "./config.ts";
 
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const LATEST_URL = "https://registry.npmjs.org/@marina-cloud%2Fcli/latest";
+const NAG_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export interface AvailableUpdate {
   current: string;
@@ -31,36 +30,22 @@ export async function availableUpdate(): Promise<AvailableUpdate | null> {
   if (process.env.MARINA_DISABLE_UPDATE_CHECK) return null;
 
   const current = packageJson.version;
+  const latest = latestCliVersion();
+  if (!latest || !isNewerVersion(latest, current)) return null;
+
   const profile = readProfile();
-  const checkedAt = profile.update ? Date.parse(profile.update.checked_at) : Number.NaN;
-  let latest = profile.update?.latest;
+  const notifiedAt = profile.update?.notified_at
+    ? Date.parse(profile.update.notified_at)
+    : Number.NaN;
+  if (Number.isFinite(notifiedAt) && Date.now() - notifiedAt < NAG_INTERVAL_MS) return null;
 
-  if (!latest || !Number.isFinite(checkedAt) || Date.now() - checkedAt >= CHECK_INTERVAL_MS) {
-    try {
-      const response = await fetch(LATEST_URL, {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(1500),
-      });
-      if (response.ok) {
-        const body = (await response.json()) as { version?: string };
-        if (body.version) {
-          latest = body.version;
-          writeProfile({
-            ...readProfile(),
-            update: { checked_at: new Date().toISOString(), latest },
-          });
-        }
-      }
-    } catch {
-      // Update checks never block a command.
-    }
-  }
-
-  return latest && isNewerVersion(latest, current)
-    ? {
-        current,
-        latest,
-        command: "npm install -g @marina-cloud/cli@latest",
-      }
-    : null;
+  writeProfile({
+    ...profile,
+    update: { latest, notified_at: new Date().toISOString() },
+  });
+  return {
+    current,
+    latest,
+    command: "npm install -g @marina-cloud/cli@latest",
+  };
 }

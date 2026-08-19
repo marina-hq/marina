@@ -9,6 +9,7 @@ import {
   profilePath,
   readLink,
   readProfile,
+  resolveControlPlane,
   saveToken,
   writeLink,
 } from "./config.ts";
@@ -37,7 +38,8 @@ import { availableUpdate } from "./update.ts";
 const HELP = `${bold("marina")} — deploy internal apps
 
   marina setup                   sign in with Clerk in your browser
-      --token mar_…              save an existing API key (headless fallback)
+      --skills                   install the Marina deployment skill
+      --deploy-demo              deploy Hello Marina after signing in
   marina logout                  remove the saved credential
   marina profile                 show where this CLI is signed in
   marina skills install          install or update the Marina deployment skill
@@ -56,8 +58,7 @@ const HELP = `${bold("marina")} — deploy internal apps
   marina list                    apps in your workspace
   marina open                    open this project's app
 
-  ${dim("--json  machine-readable result on stdout, progress on stderr")}
-  ${dim(`API: ${apiUrl()} (override with MARINA_API)`)}`;
+  ${dim("--json  machine-readable result on stdout, progress on stderr")}`;
 const ANSI_ESCAPE = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, "g");
 let shouldCheckForUpdates = false;
 
@@ -74,7 +75,24 @@ function targetApp(flag?: string): string {
 
 const shortDigest = (digest: string | null): string => digest?.slice(7, 14) ?? "—";
 
-async function deploy(dirArg: string | undefined, flags: { name?: string; app?: string }) {
+interface DeployResult {
+  command: "deploy";
+  status: "succeeded";
+  app: string;
+  version: number | null;
+  state: string | null;
+  url: string | null;
+  version_url: string | null;
+  preparation: api.PreparationReport | null;
+  live: boolean;
+  demo: boolean;
+}
+
+async function deploy(
+  dirArg: string | undefined,
+  flags: { name?: string; app?: string },
+  emitResult = true,
+): Promise<DeployResult> {
   let dir: string | null = null;
   let link: ReturnType<typeof readLink> = null;
   let target: string | undefined;
@@ -180,7 +198,7 @@ async function deploy(dirArg: string | undefined, flags: { name?: string; app?: 
     if (deployed.version_url) say(`   try this version: ${deployed.version_url}`);
     say(dim("   a publisher can approve it from the Marina inbox"));
   }
-  result({
+  const payload: DeployResult = {
     command: "deploy",
     status: "succeeded",
     app: slug,
@@ -191,7 +209,9 @@ async function deploy(dirArg: string | undefined, flags: { name?: string; app?: 
     preparation: deployed.preparation,
     live: published,
     demo: dirArg === "demo",
-  });
+  };
+  if (emitResult) result(payload);
+  return payload;
 }
 
 async function status(appFlag?: string) {
@@ -329,12 +349,13 @@ async function main() {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: {
-      token: { type: "string" },
       name: { type: "string" },
       app: { type: "string" },
       to: { type: "string" },
       plain: { type: "boolean" },
       agent: { type: "string" },
+      skills: { type: "boolean" },
+      "deploy-demo": { type: "boolean" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
@@ -347,15 +368,13 @@ async function main() {
     result({ command: "help", usage: HELP.replaceAll(ANSI_ESCAPE, "") });
     return;
   }
+  await resolveControlPlane();
   shouldCheckForUpdates = true;
 
   switch (command) {
     case "setup":
     case "login": {
-      const token = values.token ?? process.env.MARINA_TOKEN;
-      if (token) {
-        saveToken(token);
-      } else {
+      if (!process.env.MARINA_TOKEN) {
         let lastReportedRemaining = -1;
         const signedIn = await loginWithBrowser(
           (url) => {
@@ -386,11 +405,20 @@ async function main() {
         saveToken(signedIn.token);
       }
       say(`${green("ok")} signed in ${dim(`(${apiUrl()})`)}`);
+      const installed = values.skills ? installSkills(values.agent) : undefined;
+      for (const skill of installed ?? []) {
+        say(`${green("ok")} ${skill.status} Marina skill for ${skill.agent} ${dim(skill.path)}`);
+      }
+      const demo = values["deploy-demo"]
+        ? await deploy("demo", { name: values.name }, false)
+        : undefined;
       result({
         command: "setup",
         signed_in: true,
         api: apiUrl(),
         profile: profilePath(),
+        ...(installed ? { skills: installed } : {}),
+        ...(demo ? { deploy: demo } : {}),
       });
       return;
     }
@@ -490,8 +518,8 @@ async function run(): Promise<void> {
   if (!shouldCheckForUpdates) return;
   const update = await availableUpdate();
   if (update) {
-    const message = `Marina CLI ${update.latest} is available (current ${update.current}) — ${update.command}`;
-    note(isJsonMode() ? message : dim(message));
+    const detail = `Marina CLI ${update.latest} is available (current ${update.current}) — ${update.command}`;
+    note(isJsonMode() ? detail : `${bold("Update available:")} ${detail}`);
   }
 }
 

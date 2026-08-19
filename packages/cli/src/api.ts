@@ -1,4 +1,5 @@
 import { apiUrl, getToken } from "./config.ts";
+import { cliRequestHeaders } from "./identity.ts";
 
 const LOGIN_EXCHANGE_TIMEOUT_MS = 15_000;
 
@@ -17,7 +18,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!token) throw new ApiError("unauthenticated", "not signed in — run `marina setup`", 401);
   const res = await fetch(`${apiUrl()}${path}`, {
     ...init,
-    headers: { authorization: `Bearer ${token}`, ...init?.headers },
+    headers: { ...cliRequestHeaders(), authorization: `Bearer ${token}`, ...init?.headers },
   });
   const body = (await res.json().catch(() => ({}))) as {
     error?: { code?: string; message?: string };
@@ -42,7 +43,7 @@ export async function exchangeCliLogin(
   try {
     res = await fetch(`${apiUrl()}/cli/auth/exchange`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...cliRequestHeaders(), "content-type": "application/json" },
       body: JSON.stringify({ code, code_verifier: codeVerifier }),
       signal: AbortSignal.timeout(LOGIN_EXCHANGE_TIMEOUT_MS),
     });

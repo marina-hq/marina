@@ -12,6 +12,12 @@ npm install -g @marina-cloud/cli
 marina setup
 ```
 
+Or set up the CLI, install the deployment skill, and deploy Hello Marina in one command:
+
+```sh
+npm install -g @marina-cloud/cli && marina setup --skills --deploy-demo --json
+```
+
 Install Marina's deployment skill only when you want it:
 
 ```sh

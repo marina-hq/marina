@@ -16,8 +16,12 @@ describe("deploy polling", () => {
     process.env.MARINA_TOKEN = "mar_test";
     const states: DeployStatus["status"][] = ["queued", "building", "succeeded"];
     let call = 0;
-    globalThis.fetch = async () =>
-      new Response(
+    globalThis.fetch = async (_input, init) => {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("x-marina-client"), "cli");
+      assert.match(headers.get("x-marina-client-version") ?? "", /^\d+\.\d+\.\d+$/);
+      assert.match(headers.get("user-agent") ?? "", /^marina-cli\/\d+\.\d+\.\d+$/);
+      return new Response(
         JSON.stringify({
           deploy: {
             id: "deploy-1",
@@ -35,6 +39,7 @@ describe("deploy polling", () => {
         }),
         { headers: { "content-type": "application/json" } },
       );
+    };
 
     const observed: DeployStatus["status"][] = [];
     const deployed = await pollDeploy("deploy-1", (progress) => observed.push(progress.status));
