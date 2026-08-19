@@ -67,27 +67,6 @@ function install(target: SkillTarget, update: boolean): SkillInstallResult | nul
   };
 }
 
-/** Install only missing skills into agent homes that already exist. */
-export function autoInstallSkills(): {
-  detected: AgentName[];
-  installed: SkillInstallResult[];
-  updatesAvailable: AgentName[];
-} {
-  const detectedTargets = targets();
-  const installed: SkillInstallResult[] = [];
-  const updatesAvailable: AgentName[] = [];
-  for (const target of detectedTargets) {
-    const result = install(target, false);
-    if (result) installed.push(result);
-    else updatesAvailable.push(target.agent);
-  }
-  return {
-    detected: detectedTargets.map((target) => target.agent),
-    installed,
-    updatesAvailable,
-  };
-}
-
 /** Explicit installation also replaces an older Marina-managed skill. */
 export function installSkills(agent?: string): SkillInstallResult[] {
   const selected = targets(agent);

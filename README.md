@@ -12,7 +12,11 @@ npm install -g @marina-cloud/cli
 marina setup
 ```
 
-Setup also installs Marina's deployment skill for detected coding agents.
+Install Marina's deployment skill only when you want it:
+
+```sh
+marina skills install
+```
 
 Deploy the current directory:
 

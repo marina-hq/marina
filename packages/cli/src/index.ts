@@ -28,7 +28,7 @@ import {
 } from "./output.ts";
 import { pack } from "./pack.ts";
 import { readManifest, resolveAppName } from "./manifest.ts";
-import { autoInstallSkills, installSkills } from "./skills.ts";
+import { installSkills } from "./skills.ts";
 import { availableUpdate } from "./update.ts";
 
 // Exit codes are part of the contract (agents read them):
@@ -333,29 +333,6 @@ async function main() {
   }
   shouldCheckForUpdates = true;
 
-  let skillBootstrap: ReturnType<typeof autoInstallSkills> | null = null;
-  if (command !== "skills") {
-    try {
-      skillBootstrap = autoInstallSkills();
-      for (const installed of skillBootstrap.installed) {
-        if (installed.status === "installed") {
-          say(dim(`installed Marina skill for ${installed.agent}`));
-        }
-      }
-      if (skillBootstrap.updatesAvailable.length > 0) {
-        const agent =
-          skillBootstrap.updatesAvailable.length > 1 ? "all" : skillBootstrap.updatesAvailable[0];
-        say(
-          dim(
-            `Marina skill update available — run marina skills install --agent ${agent ?? "all"}`,
-          ),
-        );
-      }
-    } catch {
-      say(dim("could not install the Marina agent skill; run marina skills install later"));
-    }
-  }
-
   switch (command) {
     case "setup":
     case "login": {
@@ -363,24 +340,41 @@ async function main() {
       if (token) {
         saveToken(token);
       } else {
-        const signedIn = await loginWithBrowser((url) => {
-          say("Opening your browser to sign in…");
-          say(dim(url));
-        });
+        let lastReportedRemaining = -1;
+        const signedIn = await loginWithBrowser(
+          (url) => {
+            say("Opening your browser to sign in…");
+            say(dim(url));
+          },
+          (progress) => {
+            if (progress.phase === "waiting") {
+              const remainingSeconds = Math.ceil(progress.remainingMs / 1000);
+              if (lastReportedRemaining < 0) {
+                say(
+                  dim(
+                    `Waiting for browser authorization (${String(Math.ceil(remainingSeconds / 60))} minute timeout)…`,
+                  ),
+                );
+                lastReportedRemaining = remainingSeconds;
+              } else if (remainingSeconds <= lastReportedRemaining - 15) {
+                const minutes = Math.floor(remainingSeconds / 60);
+                const seconds = String(remainingSeconds % 60).padStart(2, "0");
+                say(dim(`Still waiting… ${String(minutes)}:${seconds} remaining`));
+                lastReportedRemaining = remainingSeconds;
+              }
+            } else if (progress.phase === "received") {
+              say(dim("Authorization received. Completing sign-in…"));
+            }
+          },
+        );
         saveToken(signedIn.token);
       }
       say(`${green("ok")} signed in ${dim(`(${apiUrl()})`)}`);
-      if (skillBootstrap?.detected.length === 0) {
-        say(
-          dim("no Codex or Claude installation detected — use marina skills install --agent later"),
-        );
-      }
       result({
         command: "setup",
         signed_in: true,
         api: apiUrl(),
         profile: profilePath(),
-        skills: skillBootstrap?.installed ?? [],
       });
       return;
     }

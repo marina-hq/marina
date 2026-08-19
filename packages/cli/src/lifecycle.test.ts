@@ -32,16 +32,13 @@ describe("CLI profile and skill lifecycle", () => {
   before(() => mkdirSync(codexHome, { recursive: true }));
   after(() => rmSync(temporary, { recursive: true, force: true }));
 
-  it("auto-installs the skill for a detected agent", () => {
+  it("never installs a skill unless explicitly requested", () => {
     const execution = run(["profile", "--json"]);
     assert.equal(execution.status, 0, execution.stderr);
     assert.equal(json(execution.stdout).signed_in, false);
 
     const installed = join(codexHome, "skills", "marina-deploy", "SKILL.md");
-    assert.equal(
-      readFileSync(installed, "utf8"),
-      readFileSync(resolve("../../skills/marina-deploy/SKILL.md"), "utf8"),
-    );
+    assert.equal(existsSync(installed), false);
   });
 
   it("stores and removes a permission-locked profile credential", () => {
@@ -68,6 +65,10 @@ describe("CLI profile and skill lifecycle", () => {
     assert.equal(
       existsSync(join(codexHome, "skills", "marina-deploy", "agents", "openai.yaml")),
       true,
+    );
+    assert.equal(
+      readFileSync(join(codexHome, "skills", "marina-deploy", "SKILL.md"), "utf8"),
+      readFileSync(resolve("../../skills/marina-deploy/SKILL.md"), "utf8"),
     );
   });
 });

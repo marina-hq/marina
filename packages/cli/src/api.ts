@@ -1,5 +1,7 @@
 import { apiUrl, getToken } from "./config.ts";
 
+const LOGIN_EXCHANGE_TIMEOUT_MS = 15_000;
+
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
@@ -36,11 +38,24 @@ export async function exchangeCliLogin(
   code: string,
   codeVerifier: string,
 ): Promise<{ token: string; name: string; prefix: string }> {
-  const res = await fetch(`${apiUrl()}/cli/auth/exchange`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, code_verifier: codeVerifier }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl()}/cli/auth/exchange`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, code_verifier: codeVerifier }),
+      signal: AbortSignal.timeout(LOGIN_EXCHANGE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if ((error as Error).name === "TimeoutError") {
+      throw new ApiError(
+        "login_timeout",
+        "the login confirmation request timed out after 15 seconds — run `marina setup` to try again",
+        408,
+      );
+    }
+    throw error;
+  }
   const body = (await res.json().catch(() => ({}))) as {
     token?: { token: string; name: string; prefix: string };
     error?: { code?: string; message?: string };
