@@ -52,9 +52,6 @@ const HELP = `${bold("marina")} — deploy internal apps
   marina deploys [--app <slug>]  recent deploy attempts, including refusals
   marina versions [--app <slug>] version history
   marina rollback [--to <hash>]  publish a previous version again
-  marina secrets                 list env vars and secrets for the app
-  marina secrets set K=V         set one (--plain for a non-secret var)
-  marina secrets rm K            remove one
   marina list                    apps in your workspace
   marina open                    open this project's app
 
@@ -115,7 +112,8 @@ async function deploy(
     packed = pack(dir);
   }
 
-  for (const secret of packed.skippedSecrets) say(dim(`skipped ${secret} — secrets stay local`));
+  for (const secret of packed.skippedSecrets)
+    say(dim(`skipped ${secret} — credential files are never deployed`));
   const progress = createProgress();
   const size = `${String(packed.fileCount)} files, ${String(Math.round(packed.totalBytes / 1024))} KB`;
   progress.update("uploading", `Uploading ${name} (${size})`);
@@ -305,43 +303,6 @@ async function rollback(appFlag: string | undefined, to: string | undefined) {
   });
 }
 
-async function secrets(appFlag: string | undefined, argv: string[], plain: boolean) {
-  const app = targetApp(appFlag);
-  const [action, argument] = argv;
-
-  if (action === "set") {
-    const eq = argument?.indexOf("=") ?? -1;
-    if (!argument || eq < 1) {
-      failure("invalid_input", "usage: marina secrets set KEY=value");
-      process.exit(1);
-    }
-    const key = argument.slice(0, eq);
-    await api.setEnv(app, key, argument.slice(eq + 1), !plain);
-    say(`${green("ok")} set ${bold(key)}${plain ? "" : dim(" (secret)")}`);
-    result({ command: "secrets.set", app, key, kind: plain ? "plain" : "secret" });
-    return;
-  }
-  if (action === "rm") {
-    if (!argument) {
-      failure("invalid_input", "usage: marina secrets rm KEY");
-      process.exit(1);
-    }
-    await api.deleteEnv(app, argument);
-    say(`${green("ok")} removed ${bold(argument)}`);
-    result({ command: "secrets.rm", app, key: argument, removed: true });
-    return;
-  }
-
-  const rows = await api.listEnv(app);
-  if (rows.length === 0) say("nothing set");
-  for (const row of rows) {
-    say(
-      `${bold(row.key)}  ${row.kind === "secret" ? dim("secret — write-only") : (row.value ?? "")}`,
-    );
-  }
-  result({ command: "secrets.list", app, env: rows });
-}
-
 async function main() {
   // Parse failures happen before values.json is available. Detect this one
   // universal flag up front so even a typo still returns machine JSON.
@@ -352,7 +313,6 @@ async function main() {
       name: { type: "string" },
       app: { type: "string" },
       to: { type: "string" },
-      plain: { type: "boolean" },
       agent: { type: "string" },
       skills: { type: "boolean" },
       "deploy-demo": { type: "boolean" },
@@ -479,9 +439,6 @@ async function main() {
       return;
     case "rollback":
       await rollback(values.app, values.to);
-      return;
-    case "secrets":
-      await secrets(values.app, positionals.slice(1), values.plain === true);
       return;
     case "list": {
       const apps = await api.listApps();

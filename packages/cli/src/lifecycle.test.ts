@@ -40,6 +40,14 @@ describe("CLI profile and skill lifecycle", () => {
   });
   after(() => rmSync(temporary, { recursive: true, force: true }));
 
+  it("does not advertise the retired app credentials commands", () => {
+    const execution = run(["--help", "--json"]);
+    assert.equal(execution.status, 0, execution.stderr);
+    const usage = String(json(execution.stdout).usage);
+    assert.doesNotMatch(usage, /marina secrets/);
+    assert.doesNotMatch(usage, /--plain/);
+  });
+
   it("never installs a skill unless explicitly requested", () => {
     const execution = run(["profile", "--json"]);
     assert.equal(execution.status, 0, execution.stderr);
