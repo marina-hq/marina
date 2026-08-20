@@ -203,33 +203,3 @@ export async function restoreVersion(versionId: string): Promise<VersionRow> {
   });
   return res.version;
 }
-
-export interface EnvRow {
-  key: string;
-  kind: "plain" | "secret";
-  value: string | null;
-}
-
-export async function listEnv(app: string): Promise<EnvRow[]> {
-  const res = await request<{ env: EnvRow[] }>(`/v1/apps/${encodeURIComponent(app)}/env`);
-  return res.env;
-}
-
-export async function setEnv(
-  app: string,
-  key: string,
-  value: string,
-  secret: boolean,
-): Promise<void> {
-  await request(`/v1/apps/${encodeURIComponent(app)}/env/${encodeURIComponent(key)}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value, kind: secret ? "secret" : "plain" }),
-  });
-}
-
-export async function deleteEnv(app: string, key: string): Promise<void> {
-  await request(`/v1/apps/${encodeURIComponent(app)}/env/${encodeURIComponent(key)}`, {
-    method: "DELETE",
-  });
-}
