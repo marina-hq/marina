@@ -48,8 +48,7 @@ Set an app's portable identity in `marina.json`:
 {
   "schema": 1,
   "name": "Hello Marina",
-  "icon": "⛵",
-  "type": "static"
+  "icon": "⛵"
 }
 ```
 

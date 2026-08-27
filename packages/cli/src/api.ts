@@ -139,7 +139,14 @@ export interface AppRow {
 
 export async function listApps(): Promise<AppRow[]> {
   const res = await request<{ apps: AppRow[] }>("/v1/apps");
-  return res.apps;
+  return res.apps.map((app) => ({
+    slug: app.slug,
+    emoji: app.emoji,
+    name: app.name,
+    status: app.status,
+    version: app.version,
+    url: app.url,
+  }));
 }
 
 export interface AppDetail {

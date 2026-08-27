@@ -14,11 +14,10 @@ describe("bundled Hello Marina demo", () => {
       schema: 1,
       name: "Hello Marina",
       icon: "⛵",
-      type: "static",
     });
   });
 
-  it("contains a self-contained static app", () => {
+  it("contains a self-contained app", () => {
     const html = readFileSync(resolve(demoDir, "index.html"), "utf8");
     const css = readFileSync(resolve(demoDir, "styles.css"), "utf8");
     const script = readFileSync(resolve(demoDir, "app.js.txt"), "utf8");

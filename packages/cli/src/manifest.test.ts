@@ -26,4 +26,15 @@ describe("marina.json", () => {
     writeFileSync(join(dir, "marina.json"), JSON.stringify({ icon: "not-an-emoji" }));
     assert.throws(() => readManifest(dir), /icon/);
   });
+
+  it("accepts legacy execution hints without exposing them", () => {
+    const dir = project();
+    writeFileSync(
+      join(dir, "marina.json"),
+      JSON.stringify({ schema: 1, name: "Legacy App", type: "dynamic" }),
+    );
+    const manifest = readManifest(dir);
+    assert.equal(manifest?.name, "Legacy App");
+    assert.equal(manifest === null ? false : "type" in manifest, false);
+  });
 });

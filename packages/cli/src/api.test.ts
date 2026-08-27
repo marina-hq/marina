@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { pollDeploy, type DeployStatus } from "./api.ts";
+import { listApps, pollDeploy, type DeployStatus } from "./api.ts";
 
 const originalFetch = globalThis.fetch;
 const originalToken = process.env.MARINA_TOKEN;
@@ -46,5 +46,38 @@ describe("deploy polling", () => {
 
     assert.equal(deployed.status, "succeeded");
     assert.deepEqual(observed, ["queued", "building", "succeeded"]);
+  });
+});
+
+describe("app listing", () => {
+  it("returns only the portable user-facing app contract", async () => {
+    process.env.MARINA_TOKEN = "mar_test";
+    globalThis.fetch = async () =>
+      Response.json({
+        apps: [
+          {
+            id: "app-1",
+            slug: "notes",
+            emoji: "📝",
+            name: "Notes",
+            status: "live",
+            version: 3,
+            url: "https://notes.example",
+            type: "dynamic",
+            folder_id: "folder-1",
+          },
+        ],
+      });
+
+    assert.deepEqual(await listApps(), [
+      {
+        slug: "notes",
+        emoji: "📝",
+        name: "Notes",
+        status: "live",
+        version: 3,
+        url: "https://notes.example",
+      },
+    ]);
   });
 });

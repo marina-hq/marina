@@ -5,7 +5,6 @@ export interface MarinaManifest {
   schema?: 1;
   name?: string;
   icon?: string;
-  type?: "static" | "dynamic";
   entrypoint?: string;
   port?: number;
 }
@@ -43,7 +42,9 @@ export function readManifest(dir: string): MarinaManifest | null {
   if (manifest.type !== undefined && manifest.type !== "static" && manifest.type !== "dynamic") {
     throw new Error('marina.json "type" must be "static" or "dynamic"');
   }
-  return manifest as MarinaManifest;
+  const portable = { ...manifest };
+  delete portable.type;
+  return portable as MarinaManifest;
 }
 
 export function resolveAppName(

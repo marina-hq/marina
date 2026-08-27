@@ -66,8 +66,7 @@ Add `marina.json` at the project root to give the app a portable name and icon:
 {
   "schema": 1,
   "name": "My App",
-  "icon": "⛵",
-  "type": "static"
+  "icon": "⛵"
 }
 ```
 
