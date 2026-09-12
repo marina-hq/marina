@@ -9,15 +9,16 @@ export interface AvailableUpdate {
   command: string;
 }
 
+const parseVersion = (version: string): number[] =>
+  version
+    .replace(/^v/, "")
+    .split("-", 1)[0]!
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+
 export function isNewerVersion(candidate: string, current: string): boolean {
-  const parse = (version: string): number[] =>
-    version
-      .replace(/^v/, "")
-      .split("-", 1)[0]!
-      .split(".")
-      .map((part) => Number.parseInt(part, 10));
-  const left = parse(candidate);
-  const right = parse(current);
+  const left = parseVersion(candidate);
+  const right = parseVersion(current);
   if (left.some(Number.isNaN) || right.some(Number.isNaN)) return false;
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0);

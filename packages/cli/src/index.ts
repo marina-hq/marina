@@ -27,8 +27,9 @@ import {
   result,
   say,
   setJsonMode,
+  terminalSafeText,
 } from "./output.ts";
-import { pack } from "./pack.ts";
+import { buildOutputParent, pack } from "./pack.ts";
 import { readManifest, resolveAppName } from "./manifest.ts";
 import { installSkills } from "./skills.ts";
 import { availableUpdate } from "./update.ts";
@@ -37,7 +38,7 @@ import { availableUpdate } from "./update.ts";
 //   0 ok · 1 error · 2 unauthenticated · 3 refused
 const HELP = `${bold("marina")} — deploy internal apps
 
-  marina setup                   sign in with Clerk in your browser
+  marina setup                   sign in through Marina in your browser
       --skills                   install the Marina deployment skill
       --deploy-demo              deploy Hello Marina after signing in
   marina logout                  remove the saved credential
@@ -50,8 +51,17 @@ const HELP = `${bold("marina")} — deploy internal apps
       --app <slug>               deploy into an existing app
   marina status [--app <slug>]   what is live, and how the last deploy went
   marina deploys [--app <slug>]  recent deploy attempts, including refusals
+  marina deploys <deploy-id>     inspect one attempt, even before an app exists
+  marina logs [--app <slug>]     structured JSON runtime invocations, console output, and errors
+      --level <level>            debug, info, log, warn, or error
+      --limit <count>            1–200 entries (default: 100)
+      --cursor <cursor>          continue from a prior result
   marina versions [--app <slug>] version history
   marina rollback [--to <hash>]  publish a previous version again
+  marina dev [dir]               run this app locally against Marina
+      --port <port>              listen port (default: 5990)
+      --schedules                run scheduled jobs on their local timers
+  marina ai models               models marina.ai can generate with, and who pays
   marina list                    apps in your workspace
   marina open                    open this project's app
 
@@ -72,14 +82,26 @@ function targetApp(flag?: string): string {
 
 const shortDigest = (digest: string | null): string => digest?.slice(7, 14) ?? "—";
 
+function deployAttemptHint(deployId: string, hasBuildLog: boolean): void {
+  if (isJsonMode()) return;
+  const command = `marina deploys ${terminalSafeText(deployId)} --json`;
+  note(
+    dim(
+      `${hasBuildLog ? "build log omitted from terminal; " : ""}retrieve structured JSON with: ${command}`,
+    ),
+  );
+}
+
 interface DeployResult {
   command: "deploy";
   status: "succeeded";
+  deploy_id: string;
   app: string;
   version: number | null;
   state: string | null;
   url: string | null;
   version_url: string | null;
+  build_log: string | null;
   preparation: api.PreparationReport | null;
   live: boolean;
   demo: boolean;
@@ -109,6 +131,17 @@ async function deploy(
     target = flags.app ?? link?.app;
     const manifest = readManifest(dir);
     name = resolveAppName(dir, flags.name, manifest, link?.name);
+    const builtFrom = buildOutputParent(dir);
+    if (builtFrom) {
+      const refusal = {
+        code: "prebuilt_output",
+        message: `${dir} looks like the build output of ${builtFrom}, not source.`,
+        action: "Deploy the project root; Marina runs the build itself.",
+      };
+      failure("refused", refusal.message, { refusal });
+      if (!isJsonMode()) note(`        ${terminalSafeText(refusal.action)}`);
+      process.exit(3);
+    }
     packed = pack(dir);
   }
 
@@ -120,7 +153,7 @@ async function deploy(
 
   let started;
   try {
-    started = await api.startDeploy(packed.zip, name, target);
+    started = await api.startDeploy(packed.zip, name, target, link?.base_revision);
   } catch (error) {
     progress.clear();
     // The linked app is gone (deleted, or a different Marina). Say so, since
@@ -140,8 +173,9 @@ async function deploy(
     deployed = await api.pollDeploy(started.id, (current) => {
       if (current.status !== "queued" && current.status !== "building") return;
       const elapsed = Math.max(1, Math.round((Date.now() - deployedAt) / 1000));
-      const message =
-        current.status === "queued"
+      const message = current.build_message
+        ? `${terminalSafeText(current.build_message)} (${String(elapsed)}s)`
+        : current.status === "queued"
           ? `Waiting for a deploy worker (${String(elapsed)}s)`
           : `Building and verifying (${String(elapsed)}s)`;
       progress.update(current.status, message);
@@ -151,27 +185,44 @@ async function deploy(
   }
 
   if (deployed.status === "refused" && deployed.refusal) {
-    say(`${red("refused")} ${deployed.refusal.message}`);
-    if (deployed.refusal.action) say(`        ${deployed.refusal.action}`);
-    if (deployed.build_log) {
-      say(dim("---- build log (tail) ----"));
-      say(dim(deployed.build_log.split("\n").slice(-20).join("\n")));
-    }
     failure("refused", deployed.refusal.message, {
+      deploy_id: deployed.id,
       refusal: deployed.refusal,
       build_log: deployed.build_log,
+      build_phase: deployed.build_phase,
+      build_message: deployed.build_message,
     });
+    if (!isJsonMode() && deployed.refusal.action) {
+      note(`        ${terminalSafeText(deployed.refusal.action)}`);
+    }
+    deployAttemptHint(deployed.id, deployed.build_log !== null);
     process.exit(3);
   }
   if (deployed.status === "failed") {
-    failure("failed", deployed.error ?? "unknown error");
+    failure("failed", deployed.error ?? "unknown error", {
+      deploy_id: deployed.id,
+      build_log: deployed.build_log,
+      build_phase: deployed.build_phase,
+      build_message: deployed.build_message,
+    });
+    deployAttemptHint(deployed.id, deployed.build_log !== null);
     process.exit(1);
   }
 
   // Write the manifest back so the next deploy needs no flags at all.
   const slug = deployed.app_slug ?? "";
-  if (dir && (!link || link.app !== slug || link.name !== name)) {
-    writeLink(dir, { app: slug, name });
+  if (
+    dir &&
+    (!link ||
+      link.app !== slug ||
+      link.name !== name ||
+      link.base_revision !== (deployed.source_revision ?? undefined))
+  ) {
+    writeLink(dir, {
+      app: slug,
+      name,
+      ...(deployed.source_revision ? { base_revision: deployed.source_revision } : {}),
+    });
   }
 
   const published = deployed.version_state === "published";
@@ -199,11 +250,13 @@ async function deploy(
   const payload: DeployResult = {
     command: "deploy",
     status: "succeeded",
+    deploy_id: deployed.id,
     app: slug,
     version: deployed.version_number,
     state: deployed.version_state,
     url: deployed.url,
     version_url: deployed.version_url,
+    build_log: deployed.build_log,
     preparation: deployed.preparation,
     live: published,
     demo: dirArg === "demo",
@@ -214,8 +267,8 @@ async function deploy(
 
 async function status(appFlag?: string) {
   const app = targetApp(appFlag);
-  const [detail, deploys] = await Promise.all([api.getApp(app), api.listDeploys(app, 1)]);
-  const last = deploys[0];
+  const [detail, history] = await Promise.all([api.getApp(app), api.listDeploys(app, 1)]);
+  const last = history[0];
 
   say(`${bold(detail.app.name)} ${dim(`(${detail.app.slug})`)}`);
   say(`  ${detail.app.current_version_id ? green(detail.app.status) : dim("nothing published")}`);
@@ -228,7 +281,8 @@ async function status(appFlag?: string) {
         : last.status === "queued" || last.status === "building"
           ? last.status
           : red(last.status);
-    say(`  last deploy: ${outcome}${last.refusal ? ` — ${last.refusal.message}` : ""}`);
+    const version = last.version_number == null ? "" : ` v${String(last.version_number)}`;
+    say(`  last deploy: ${outcome}${version}${last.refusal ? ` — ${last.refusal.message}` : ""}`);
   }
   result({
     command: "status",
@@ -242,16 +296,65 @@ async function status(appFlag?: string) {
   });
 }
 
-async function deploys(appFlag?: string) {
+function deployOutcome(attempt: Pick<api.DeployStatus, "status" | "refusal" | "error">): string {
+  return attempt.refusal?.message ?? attempt.error ?? attempt.status;
+}
+
+async function deploys(appFlag?: string, deployId?: string) {
+  if (deployId) {
+    const attempt = await api.getDeploy(deployId);
+    const mark = attempt.status === "succeeded" ? green("ok") : red(attempt.status);
+    say(`${mark} ${dim(attempt.id)} — ${terminalSafeText(deployOutcome(attempt))}`);
+    if (attempt.build_log) deployAttemptHint(attempt.id, true);
+    result({ command: "deploys.show", deploy: attempt });
+    return;
+  }
   const app = targetApp(appFlag);
   const rows = await api.listDeploys(app);
   if (rows.length === 0) say("no deploys yet");
   for (const row of rows) {
     const mark = row.status === "succeeded" ? green("ok") : red(row.status);
-    const why = row.refusal ? ` — ${row.refusal.message}` : row.error ? ` — ${row.error}` : "";
-    say(`${mark}  ${dim(row.created_at)} ${dim(`via ${row.source}`)}${why}`);
+    const why = row.refusal
+      ? ` — ${terminalSafeText(row.refusal.message)}`
+      : row.error
+        ? ` — ${terminalSafeText(row.error)}`
+        : "";
+    const version = row.version_number == null ? "" : ` v${String(row.version_number)}`;
+    say(`${mark}${version}  ${dim(row.created_at)} ${dim(`via ${row.source}`)}${why}`);
   }
+  const failedWithLog = rows.find((row) => row.status !== "succeeded" && row.build_log);
+  if (failedWithLog) deployAttemptHint(failedWithLog.id, true);
   result({ command: "deploys", app, deploys: rows });
+}
+
+const LOG_LEVELS = new Set<api.RuntimeLogLevel>(["debug", "info", "log", "warn", "error"]);
+
+async function logs(
+  appFlag: string | undefined,
+  flags: { level?: string; limit?: string; cursor?: string },
+) {
+  const app = targetApp(appFlag);
+  const parsedLimit = flags.limit === undefined ? 100 : Number(flags.limit);
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
+    failure("invalid_input", "--limit must be an integer from 1 to 200");
+    process.exit(1);
+  }
+  if (flags.level && !LOG_LEVELS.has(flags.level as api.RuntimeLogLevel)) {
+    failure("invalid_input", "--level must be debug, info, log, warn, or error");
+    process.exit(1);
+  }
+
+  const response = await api.listRuntimeLogs(app, {
+    limit: parsedLimit,
+    cursor: flags.cursor,
+    level: flags.level as api.RuntimeLogLevel | undefined,
+  });
+  result({
+    command: "logs",
+    app,
+    logs: response.logs,
+    next_cursor: response.nextCursor,
+  });
 }
 
 async function versions(appFlag?: string) {
@@ -313,15 +416,23 @@ async function main() {
       name: { type: "string" },
       app: { type: "string" },
       to: { type: "string" },
+      level: { type: "string" },
+      limit: { type: "string" },
+      cursor: { type: "string" },
       agent: { type: "string" },
+      port: { type: "string" },
+      schedules: { type: "boolean" },
+      dir: { type: "string" },
       skills: { type: "boolean" },
       "deploy-demo": { type: "boolean" },
       json: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
-  setJsonMode(values.json === true);
   const command = positionals[0];
+  // Runtime log bodies have no human renderer. Their command always returns a
+  // single structured document, even when --json was omitted.
+  setJsonMode(values.json === true || command === "logs");
 
   if (values.help || !command) {
     say(HELP);
@@ -398,6 +509,20 @@ async function main() {
       });
       return;
     }
+    case "dev": {
+      const { runDev } = await import("./dev/index.ts");
+      try {
+        await runDev({
+          dir: values.dir ?? positionals[1],
+          port: values.port,
+          schedules: values.schedules === true,
+        });
+      } catch (error) {
+        failure("dev_failed", (error as Error).message);
+        process.exitCode = 1;
+      }
+      return;
+    }
     case "profile": {
       const profile = readProfile();
       const source = process.env.MARINA_TOKEN ? "environment" : profile.token ? "profile" : null;
@@ -424,6 +549,28 @@ async function main() {
       result({ command: "skills.install", skills: installed });
       return;
     }
+    case "ai": {
+      if (positionals[1] !== "models") {
+        failure("invalid_input", "usage: marina ai models");
+        process.exit(1);
+      }
+      const view = await api.aiModels();
+      say(`${bold("fast")}   ${view.aliases.fast ?? dim("(broker unreachable)")}`);
+      say(`${bold("smart")}  ${view.aliases.smart ?? dim("(broker unreachable)")}`);
+      if (view.models.length === 0) {
+        say(dim("no library models offered on this deployment"));
+      }
+      for (const model of view.models) say(`  ${model}`);
+      const billing =
+        view.billing === "workspace"
+          ? "generations bill this workspace's OpenRouter account (BYOK)"
+          : view.billing === "platform"
+            ? "generations bill Marina's platform key — connect OpenRouter to use your own"
+            : "no AI billing key: connect OpenRouter in Settings → Connections";
+      say(dim(billing));
+      result({ command: "ai.models", ...view });
+      return;
+    }
     case "deploy":
       await deploy(positionals[1], values);
       return;
@@ -432,7 +579,10 @@ async function main() {
       return;
     case "deploys":
     case "deployments":
-      await deploys(values.app);
+      await deploys(values.app, positionals[1]);
+      return;
+    case "logs":
+      await logs(values.app, values);
       return;
     case "versions":
       await versions(values.app);

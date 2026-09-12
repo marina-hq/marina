@@ -2,29 +2,40 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { describe, it } from "node:test";
-import { closeLoginServer, waitForLoginCallback, type LoginProgress } from "./login.ts";
+import {
+  LOGIN_TIMEOUT_MS,
+  closeLoginServer,
+  waitForLoginCallback,
+  type LoginProgress,
+} from "./login.ts";
 
 function callback(
   server: Server,
   url: string,
-): { response: ServerResponse; status: () => number | null } {
+): { response: ServerResponse; status: () => number | null; body: () => string } {
   let responseStatus: number | null = null;
+  let responseBody = "";
   const response = {
     setHeader: () => undefined,
     writeHead(status: number) {
       responseStatus = status;
       return response;
     },
-    end(_body?: unknown, done?: () => void) {
+    end(body?: unknown, done?: () => void) {
+      responseBody = String(body ?? "");
       done?.();
       return response;
     },
   } as unknown as ServerResponse;
   server.emit("request", { url } as IncomingMessage, response);
-  return { response, status: () => responseStatus };
+  return { response, status: () => responseStatus, body: () => responseBody };
 }
 
 describe("browser login callback", () => {
+  it("leaves enough time to finish browser authorization", () => {
+    assert.equal(LOGIN_TIMEOUT_MS, 15 * 60_000);
+  });
+
   it("force-closes browser connections during shutdown", async () => {
     let stopped = false;
     let connectionsClosed = false;
@@ -58,6 +69,9 @@ describe("browser login callback", () => {
     const handled = callback(server, "/callback?state=expected-state&code=authorization-code");
 
     assert.equal(handled.status(), 200);
+    assert.match(handled.body(), /<meta name="color-scheme" content="light dark">/);
+    assert.match(handled.body(), /@media\(prefers-color-scheme:dark\)/);
+    assert.match(handled.body(), /background:var\(--background\)/);
     assert.equal(await code, "authorization-code");
     assert.equal(progress[0]?.phase, "waiting");
     assert.equal(progress.at(-1)?.phase, "received");

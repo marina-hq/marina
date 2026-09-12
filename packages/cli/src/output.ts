@@ -15,6 +15,27 @@ export const dim = (s: string) => `[2m${s}[22m`;
 export const red = (s: string) => `[31m${s}[39m`;
 export const green = (s: string) => `[32m${s}[39m`;
 
+/** Render untrusted summary text without allowing terminal control. */
+export function terminalSafeText(value: string): string {
+  return Array.from(value, (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    if (code >= 32 && (code < 127 || code > 159)) return character;
+    if (code === 9) return "\\t";
+    if (code === 10) return "\\n";
+    if (code === 13) return "\\r";
+    return `\\u{${code.toString(16).padStart(4, "0")}}`;
+  }).join("");
+}
+
+/** JSON already escapes C0 string controls. Escape DEL and C1 as well so the
+ * serialized document is inert in a terminal while parsing back losslessly. */
+export function terminalSafeJson(payload: object, space?: number): string {
+  return Array.from(JSON.stringify(payload, null, space), (character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code >= 127 && code <= 159 ? `\\u${code.toString(16).padStart(4, "0")}` : character;
+  }).join("");
+}
+
 /** Human-facing line. Moves to stderr in --json so stdout stays parseable. */
 export function say(line = ""): void {
   if (json) console.error(line);
@@ -43,7 +64,7 @@ export function createProgress(): {
         process.stderr.write(`\r\u001b[2K${frames[frame++ % frames.length]} ${line}`);
         active = true;
       } else if (phase !== lastPhase) {
-        console.error(json ? JSON.stringify({ type: "progress", phase, message: line }) : line);
+        console.error(json ? terminalSafeJson({ type: "progress", phase, message: line }) : line);
       }
       lastPhase = phase;
     },
@@ -54,18 +75,18 @@ export function createProgress(): {
   };
 }
 
-/** The machine result. Printed only in --json, exactly once per run. */
+/** The machine result. Printed once whenever structured mode is active. */
 export function result(payload: object): void {
-  if (json) console.log(JSON.stringify({ schema_version: 1, ok: true, ...payload }, null, 2));
+  if (json) console.log(terminalSafeJson({ schema_version: 1, ok: true, ...payload }, 2));
 }
 
 /** The machine-readable failure, mirroring the API's error shape. */
 export function failure(code: string, message: string, extra: Record<string, unknown> = {}): void {
   if (json)
     console.log(
-      JSON.stringify({ schema_version: 1, ok: false, error: { code, message, ...extra } }, null, 2),
+      terminalSafeJson({ schema_version: 1, ok: false, error: { code, message, ...extra } }, 2),
     );
   else {
-    console.error(`${red(code)} ${message}`);
+    console.error(`${red(terminalSafeText(code))} ${terminalSafeText(message)}`);
   }
 }

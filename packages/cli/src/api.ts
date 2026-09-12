@@ -33,6 +33,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+/** The signed-in developer and workspace, for `marina dev` and setup. */
+export async function me(): Promise<{
+  user: { id: string; name: string; email: string };
+  workspace: { id: string; name: string; handle: string };
+  role: string;
+}> {
+  return request("/v1/me");
+}
+
 /** Complete the browser login without an existing credential. The API key is
  * returned only to this direct client request, never through the browser. */
 export async function exchangeCliLogin(
@@ -72,6 +81,14 @@ export async function exchangeCliLogin(
 }
 
 /** What Marina changed to make the project deployable, when it had to. */
+export interface AIModelsView {
+  aliases: { fast: string | null; smart: string | null };
+  models: string[];
+  billing: "workspace" | "platform" | "unconfigured";
+}
+
+export const aiModels = (): Promise<AIModelsView> => request("/v1/ai/models");
+
 export interface PreparationReport {
   transformation: "none" | "mechanical" | "behavioral";
   summary: string;
@@ -81,14 +98,19 @@ export interface PreparationReport {
 
 export interface DeployStatus {
   id: string;
+  version_id: string | null;
   status: "queued" | "building" | "succeeded" | "refused" | "failed";
   refusal: { code: string; message: string; action: string } | null;
   error: string | null;
   build_log: string | null;
+  build_phase: string | null;
+  build_message: string | null;
+  build_updated_at: string | null;
   app_slug: string | null;
   version_number: number | null;
   version_state: string | null;
   preparation: PreparationReport | null;
+  source_revision: string | null;
   /** Where the app serves — the server builds URLs, clients print them. */
   url: string | null;
   /** This exact build, digest-pinned — the review link for proposed versions. */
@@ -99,6 +121,7 @@ export async function startDeploy(
   zip: Uint8Array,
   name: string,
   app?: string,
+  baseRevision?: string,
 ): Promise<{ id: string }> {
   const form = new FormData();
   form.set(
@@ -109,6 +132,7 @@ export async function startDeploy(
   form.set("name", name);
   form.set("source", "cli");
   if (app) form.set("app", app);
+  if (baseRevision) form.set("base_revision", baseRevision);
   const res = await request<{ deploy: { id: string } }>("/v1/deploys", {
     method: "POST",
     body: form,
@@ -121,11 +145,17 @@ export async function pollDeploy(
   onProgress: (deploy: DeployStatus) => void = () => undefined,
 ): Promise<DeployStatus> {
   for (;;) {
-    const { deploy } = await request<{ deploy: DeployStatus }>(`/v1/deploys/${id}`);
+    const deploy = await getDeploy(id);
     onProgress(deploy);
     if (deploy.status !== "queued" && deploy.status !== "building") return deploy;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
+}
+
+/** One durable deploy attempt, including attempts refused before an app exists. */
+export async function getDeploy(id: string): Promise<DeployStatus> {
+  const res = await request<{ deploy: DeployStatus }>(`/v1/deploys/${encodeURIComponent(id)}`);
+  return res.deploy;
 }
 
 export interface AppRow {
@@ -181,9 +211,15 @@ export async function listVersions(app: string): Promise<VersionRow[]> {
 
 export interface DeployRow {
   id: string;
+  version_id: string | null;
+  version_number: number | null;
   status: DeployStatus["status"];
   refusal: DeployStatus["refusal"];
   error: string | null;
+  build_log: string | null;
+  build_phase: string | null;
+  build_message: string | null;
+  build_updated_at: string | null;
   source: string;
   created_at: string;
   finished_at: string | null;
@@ -195,6 +231,40 @@ export async function listDeploys(app: string, limit = 10): Promise<DeployRow[]>
     `/v1/apps/${encodeURIComponent(app)}/deploys?limit=${String(limit)}`,
   );
   return res.deploys;
+}
+
+export type RuntimeLogLevel = "debug" | "info" | "log" | "warn" | "error";
+
+export interface RuntimeLogRow {
+  id: string;
+  invocation_id: string;
+  ts: string;
+  kind: "invocation" | "console" | "exception" | "deployment";
+  level: RuntimeLogLevel;
+  message: string;
+  exception_name: string;
+  outcome: string;
+  request_method: string;
+  request_path: string;
+  response_status: number;
+  ray_id: string;
+  colo: string;
+  sequence: number;
+  truncated: boolean;
+}
+
+export async function listRuntimeLogs(
+  app: string,
+  options: { limit?: number; cursor?: string; level?: RuntimeLogLevel } = {},
+): Promise<{ logs: RuntimeLogRow[]; nextCursor: string | null }> {
+  const query = new URLSearchParams();
+  query.set("limit", String(options.limit ?? 100));
+  if (options.cursor) query.set("cursor", options.cursor);
+  if (options.level) query.set("level", options.level);
+  const response = await request<{ logs: RuntimeLogRow[]; next_cursor: string | null }>(
+    `/v1/apps/${encodeURIComponent(app)}/logs?${query.toString()}`,
+  );
+  return { logs: response.logs, nextCursor: response.next_cursor };
 }
 
 export async function restoreVersion(versionId: string): Promise<VersionRow> {

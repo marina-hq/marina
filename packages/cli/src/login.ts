@@ -5,7 +5,7 @@ import { hostname } from "node:os";
 import { dashboardUrl } from "./config.ts";
 import { exchangeCliLogin } from "./api.ts";
 
-const LOGIN_TIMEOUT_MS = 5 * 60_000;
+export const LOGIN_TIMEOUT_MS = 15 * 60_000;
 const PROGRESS_INTERVAL_MS = 1000;
 
 export type LoginProgress =
@@ -13,10 +13,12 @@ export type LoginProgress =
   | { phase: "received" };
 
 const page = (title: string, message: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light dark">
 <title>${title}</title><style>
-body{margin:0;display:grid;place-items:center;min-height:100vh;font:15px/1.5 system-ui,sans-serif;color:#142238;background:#faf9f7}
-main{text-align:center;padding:32px}h1{font-size:22px;margin:0 0 6px}p{margin:0;color:#667085}
+:root{color-scheme:light;--text:#142238;--muted:#667085;--background:#faf9f7}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--text:#f2f4f7;--muted:#98a2b3;--background:#101828}}
+body{margin:0;display:grid;place-items:center;min-height:100vh;font:15px/1.5 system-ui,sans-serif;color:var(--text);background:var(--background)}
+main{text-align:center;padding:32px}h1{font-size:22px;margin:0 0 6px}p{margin:0;color:var(--muted)}
 </style></head><body><main><h1>${title}</h1><p>${message}</p></main></body></html>`;
 
 export const closeLoginServer = (server: Server): Promise<void> =>

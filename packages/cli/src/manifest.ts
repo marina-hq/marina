@@ -5,6 +5,7 @@ export interface MarinaManifest {
   schema?: 1;
   name?: string;
   icon?: string;
+  /** Accepted only for compatibility with older manifests. */
   type?: "static" | "dynamic";
   entrypoint?: string;
   port?: number;
@@ -41,7 +42,7 @@ export function readManifest(dir: string): MarinaManifest | null {
     throw new Error('marina.json "icon" must be an emoji');
   }
   if (manifest.type !== undefined && manifest.type !== "static" && manifest.type !== "dynamic") {
-    throw new Error('marina.json "type" must be "static" or "dynamic"');
+    throw new Error('marina.json "type" is obsolete; remove it and use "entrypoint" if needed');
   }
   return manifest as MarinaManifest;
 }

@@ -212,6 +212,8 @@ export function clearToken(): void {
 export interface ProjectLink {
   app: string; // slug
   name?: string;
+  /** Opaque Marina source version this directory was last deployed from. */
+  base_revision?: string;
 }
 
 const LINK = ".marina/project.json";

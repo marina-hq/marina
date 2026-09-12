@@ -1,6 +1,6 @@
 {
   "name": "@marina-cloud/cli",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Command-line client for Marina Cloud",
   "homepage": "https://github.com/marina-hq/marina#readme",
   "bugs": {
@@ -24,16 +24,20 @@
     "provenance": true
   },
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --loader:.md=text --loader:.yaml=text --loader:.html=text --loader:.css=text --loader:.txt=text --outfile=dist/marina.mjs --banner:js=\"#!/usr/bin/env node\" && chmod +x dist/marina.mjs",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --loader:.md=text --loader:.yaml=text --loader:.html=text --loader:.css=text --loader:.txt=text --external:@electric-sql/pglite --external:esbuild --outfile=dist/marina.mjs --banner:js=\"#!/usr/bin/env node\" && chmod +x dist/marina.mjs",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --experimental-strip-types --test src/*.test.ts",
     "prepack": "pnpm build"
   },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.6",
+    "esbuild": "^0.28.2",
+    "ignore": "^7.0.6"
+  },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "esbuild": "^0.25.0",
-    "fflate": "^0.8.2",
-    "typescript": "^5.9.0"
+    "@types/node": "26.2.0",
+    "fflate": "^0.8.3",
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=22"
