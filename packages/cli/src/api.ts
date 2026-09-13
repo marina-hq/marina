@@ -188,6 +188,24 @@ export interface AppDetail {
 export const getApp = (idOrSlug: string): Promise<AppDetail> =>
   request<AppDetail>(`/v1/apps/${encodeURIComponent(idOrSlug)}`);
 
+export function inspectAppDatabase(
+  app: string,
+  command: {
+    action: "tables" | "schema" | "query";
+    table?: string;
+    sql?: string;
+    params?: unknown[];
+    limit?: number;
+  },
+): Promise<Record<string, unknown>> {
+  return request(`/v1/apps/${encodeURIComponent(app)}/db`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(command),
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
 export async function getAppUrl(idOrSlug: string): Promise<string> {
   return (await getApp(idOrSlug)).url;
 }
@@ -273,3 +291,21 @@ export async function restoreVersion(versionId: string): Promise<VersionRow> {
   });
   return res.version;
 }
+
+/** Available developer connections, with no credentials or provider configuration. */
+export interface DeveloperConnection {
+  connector: string;
+  connection: string;
+  name: string;
+  auth_mode: "organization" | "user";
+  connected: boolean;
+  operations: {
+    operation: string;
+    effect: string;
+    description: string;
+    input_schema: Record<string, unknown> | null;
+    output_schema: Record<string, unknown> | null;
+  }[];
+}
+export const listConnections = (): Promise<{ connections: DeveloperConnection[] }> =>
+  request("/v1/connections");

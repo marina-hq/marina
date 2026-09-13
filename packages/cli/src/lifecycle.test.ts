@@ -41,6 +41,94 @@ function assertTerminalSafeJson(value: string): void {
 }
 
 describe("CLI profile and skill lifecycle", () => {
+  it("inspects an explicit deployed app through the API and preserves query parameters", () => {
+    const environment = {
+      MARINA_TOKEN: "mar_test_only",
+      NODE_OPTIONS: `--import=${resolve("src/mock-fetch.test-fixture.mjs")}`,
+      MARINA_DISABLE_CONTROL_PLANE_DISCOVERY: "0",
+    };
+    const tables = run(["db", "tables", "--app", "orders", "--json"], environment);
+    assert.equal(tables.status, 0, tables.stderr);
+    assert.deepEqual(json(tables.stdout).tables, [{ name: "notes" }]);
+    assert.equal(json(tables.stdout).environment, "production");
+    assert.equal(json(tables.stdout).app, "orders");
+    const schema = run(["db", "schema", "notes", "--app", "orders", "--json"], environment);
+    assert.equal(schema.status, 0, schema.stderr);
+    assert.equal(json(schema.stdout).table, "notes");
+    const file = join(temporary, "inspect.sql");
+    writeFileSync(file, "select * from notes where id = $1");
+    const queried = run(
+      [
+        "db",
+        "query",
+        "--file",
+        file,
+        "--params",
+        "[123]",
+        "--limit",
+        "2",
+        "--app",
+        "orders",
+        "--json",
+      ],
+      environment,
+    );
+    assert.equal(queried.status, 0, queried.stderr);
+    assert.equal(json(queried.stdout).command, "db.query");
+    assert.deepEqual(json(queried.stdout).rows, [
+      { sql: "select * from notes where id = $1", params: [123] },
+    ]);
+    assert.equal(json(queried.stdout).rowCount, 2);
+    const denied = run(["db", "tables", "--app", "view-only", "--json"], environment);
+    assert.equal(denied.status, 1);
+    assert.deepEqual(json(denied.stdout).error, {
+      code: "forbidden",
+      message: "you don't have edit access to this app",
+    });
+  });
+
+  it("refuses remote mutations and ambiguous local/production targets before any network call", () => {
+    for (const args of [
+      ["query", "delete from notes", "--write"],
+      ["reset", "--yes"],
+      ["migrate"],
+      ["migrations"],
+      ["tables", "--dir", "."],
+      ["schema", "notes", "--schema", "public"],
+    ]) {
+      const execution = run(["db", ...args, "--app", "orders", "--json"], {
+        MARINA_TOKEN: undefined,
+        NODE_OPTIONS: `--import=${resolve("src/mock-fetch.test-fixture.mjs")}`,
+      });
+      assert.equal(execution.status, 1);
+      assert.equal(json(execution.stdout).ok, false);
+      assert.doesNotMatch(execution.stdout, /not signed in|unexpected test request/);
+    }
+  });
+
+  it("discovers member connections and describes a usable manifest and input contract", () => {
+    const environment = {
+      MARINA_TOKEN: "mar_test_only",
+      NODE_OPTIONS: `--import=${resolve("src/mock-fetch.test-fixture.mjs")}`,
+    };
+    const listed = run(["connections", "list", "--json"], environment);
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.equal(
+      (json(listed.stdout).connections as Record<string, unknown>[])[0]?.connection,
+      "orders",
+    );
+    const described = run(["connections", "describe", "postgres/orders", "--json"], environment);
+    assert.equal(described.status, 0, described.stderr);
+    const view = json(described.stdout);
+    assert.deepEqual(view.manifest, {
+      connections: { postgres: [{ connection: "orders", capabilities: ["query.read"] }] },
+    });
+    assert.equal(view.command, "connections.describe");
+    const missing = run(["connections", "describe", "postgres/missing", "--json"], environment);
+    assert.equal(missing.status, 1);
+    assert.equal(json(missing.stdout).ok, false);
+  });
+
   before(() => {
     mkdirSync(marinaHome, { recursive: true });
     mkdirSync(codexHome, { recursive: true });

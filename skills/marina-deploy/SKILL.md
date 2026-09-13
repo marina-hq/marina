@@ -44,6 +44,12 @@ run; the refusal and action are still preserved on the deploy attempt.
 
 ## Develop locally
 
+Discover company data with `marina connections list --json` and inspect a
+connection with `marina connections describe <connector/id> --json`. Use the
+returned input schemas and declare only the read operations the app needs.
+Personal connections resolve each viewer's own credential after deployment;
+a viewer must connect their own account, and background jobs cannot use them.
+
 `marina dev` runs the app on this machine with the production runtime
 contract: local storage and an embedded Postgres (the app's
 `marina/migrations` apply on start), while `marina.capabilities` and
@@ -52,6 +58,29 @@ dev-scoped grants. A denied bridged call names the missing grant — an
 organization admin adds it from the connection's Dev access control. Use
 `--port <port>` to change the listen port and `--schedules` to run scheduled
 jobs locally. `marina.ai` bridges too; per-developer usage is metered.
+
+For apps with `runtime.db: "v1"`, keep `marina dev` running and inspect its
+database with `marina db tables --json`, `marina db schema <table> --json`, or
+`marina db query '<sql>' --json`. Use `--dir <project>` from another directory,
+`--params '<json-array>'` for parameters, and `--file <path>` for one SQL
+statement from a file. Reads default to 100 rows; `--limit` permits up to 1000.
+Use `--write` only for intended local data changes. Without `--app`, these
+commands always inspect local data, including in a linked project.
+
+For deployed data, explicitly pass `--app <slug-or-id>` to `db tables`,
+`db schema <table>`, or `db query '<sql>'`. This uses the current Marina profile
+and requires edit access to that app (owner, workspace admin, editor, or
+publisher) and a read-scoped API key. Remote inspection is read-only; the
+server fixes the app schema and retains credentials. Use unqualified table
+names. Editors can inspect all app records, including viewer-filtered data.
+`--params`, `--file`, and `--limit` also work remotely; `rowCount` counts returned
+rows and `truncated` means more exist. Remote writes, migrations, and reset are
+not supported. `--dir` and `--schema` are local options only.
+
+New migrations apply on reload; `marina db migrations --json` shows their
+status and `marina db migrate --json` applies them explicitly. Add new migration
+files rather than changing applied ones. `marina db reset --yes` deletes local
+database records and reapplies migrations, preserving local file storage.
 
 ## Create a demo
 

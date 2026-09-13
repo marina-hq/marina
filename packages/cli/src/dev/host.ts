@@ -25,6 +25,7 @@ export interface DevHostOptions {
   port: number;
   identity: { userId: string; workspaceId: string; userLabel: string; appName: string };
   log: (line: string) => void;
+  beforeReload?: () => Promise<void>;
 }
 
 function entrypointSource(projectDir: string, entrypoint: string): string {
@@ -85,7 +86,7 @@ function toRequest(
   port: number,
   identity: DevHostOptions["identity"],
 ): Request {
-  const url = new URL(req.url ?? "/", `http://localhost:${String(port)}`);
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `localhost:${String(port)}`}`);
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
     if (typeof value === "string") headers.set(name, value);
@@ -149,6 +150,7 @@ export interface DevHost {
 export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
   mkdirSync(options.buildDir, { recursive: true });
   let app = await bundle(options);
+  let reloadBlocked = false;
   const chrome = devChromeSnippet({
     appName: options.identity.appName,
     userLabel: options.identity.userLabel,
@@ -156,11 +158,27 @@ export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
 
   const fetchApp = (request: Request): Promise<Response> =>
     Promise.resolve(
-      app.fetch(request, { MARINA: options.binding }, { waitUntil: () => undefined }),
+      reloadBlocked
+        ? new Response("marina dev: database reload is incomplete; fix the migration and reload", {
+            status: 503,
+          })
+        : app.fetch(request, { MARINA: options.binding }, { waitUntil: () => undefined }),
     );
 
   const server = createServer((req, res) => {
-    fetchApp(toRequest(req, options.port, options.identity))
+    const port = req.socket.localPort ?? options.port;
+    const hosts = [`localhost:${String(port)}`, `127.0.0.1:${String(port)}`];
+    if (port === 80) hosts.push("localhost", "127.0.0.1");
+    if (
+      !hosts.includes(req.headers.host ?? "") ||
+      !req.url?.startsWith("/") ||
+      req.url.startsWith("//")
+    ) {
+      res.writeHead(403).end("marina dev requires a local host");
+      return;
+    }
+    Promise.resolve()
+      .then(() => fetchApp(toRequest(req, port, options.identity)))
       .then((response) => writeResponse(response, res, chrome))
       .catch((error: Error) => {
         res.writeHead(500, { "content-type": "text/plain" });
@@ -169,23 +187,40 @@ export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
   });
   await new Promise<void>((ready, failed) => {
     server.once("error", failed);
-    server.listen(options.port, () => {
+    server.listen(options.port, "127.0.0.1", () => {
       ready();
     });
   });
 
+  let rebuilding: Promise<void> = Promise.resolve();
+  const rebuild = () => {
+    const next = rebuilding.then(async () => {
+      const replacement = await bundle(options);
+      // A migration batch can partially commit before a later file fails.
+      // Once migrations start, stop serving the old app until reload succeeds.
+      reloadBlocked = true;
+      await options.beforeReload?.();
+      app = replacement;
+      reloadBlocked = false;
+    });
+    rebuilding = next.catch(() => undefined);
+    return next;
+  };
   let rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   const watchers: FSWatcher[] = [];
   const scheduleRebuild = () => {
     if (rebuildTimer) clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
-      bundle(options)
-        .then((next) => {
-          app = next;
+      rebuild()
+        .then(() => {
           options.log("reloaded");
         })
         .catch((error: Error) => {
-          options.log(`build failed — still serving the previous build: ${error.message}`);
+          options.log(
+            reloadBlocked
+              ? `reload failed — app paused until migrations succeed: ${error.message}`
+              : `build failed — still serving the previous build: ${error.message}`,
+          );
         });
     }, 150);
   };
@@ -207,14 +242,13 @@ export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
   }
 
   return {
-    port: options.port,
+    port: (server.address() as { port: number }).port,
     fetchApp,
-    rebuild: async () => {
-      app = await bundle(options);
-    },
+    rebuild,
     close: async () => {
       for (const watcher of watchers) watcher.close();
       if (rebuildTimer) clearTimeout(rebuildTimer);
+      await rebuilding;
       await new Promise<void>((done) => {
         server.close(() => {
           done();
