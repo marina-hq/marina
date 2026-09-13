@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { get } from "node:http";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,6 +165,7 @@ test("the dev host serves a real app through the local binding with chrome injec
       "export default defineApp({",
       "  async fetch(request, marina) {",
       "    const url = new URL(request.url);",
+      '    if (url.pathname === "/origin") return Response.json({ origin: url.origin });',
       '    if (url.pathname === "/job") {',
       '      const run = await marina.jobs.enqueue("test-job", {});',
       "      return Response.json(await marina.jobs.get(run.id));",
@@ -224,6 +226,19 @@ test("the dev host serves a real app through the local binding with chrome injec
     const html = await page.text();
     assert.match(html, /<h1>ok<\/h1>/);
     assert.match(html, /local dev · maya@acme\.com/);
+    const origin = await fetch(`http://127.0.0.1:${String(port)}/origin`);
+    assert.deepEqual(await origin.json(), { origin: `http://127.0.0.1:${String(port)}` });
+    const foreign = await new Promise<number | undefined>((done, reject) => {
+      get(
+        `http://127.0.0.1:${String(port)}/`,
+        { headers: { host: "foreign.example" } },
+        (response) => {
+          response.resume();
+          done(response.statusCode);
+        },
+      ).on("error", reject);
+    });
+    assert.equal(foreign, 403);
 
     const saved = await fetch(`http://localhost:${String(port)}/save`);
     const body = (await saved.json()) as { key: string; size: number };

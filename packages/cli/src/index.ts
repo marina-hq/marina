@@ -13,6 +13,7 @@ import {
   saveToken,
   writeLink,
 } from "./config.ts";
+import { runDatabaseCommand } from "./db.ts";
 import { DEMO_MANIFEST, packDemo } from "./demo.ts";
 import { loginWithBrowser } from "./login.ts";
 import {
@@ -28,6 +29,7 @@ import {
   say,
   setJsonMode,
   terminalSafeText,
+  terminalSafeJson,
 } from "./output.ts";
 import { buildOutputParent, pack } from "./pack.ts";
 import { readManifest, resolveAppName } from "./manifest.ts";
@@ -61,6 +63,19 @@ const HELP = `${bold("marina")} — deploy internal apps
   marina dev [dir]               run this app locally against Marina
       --port <port>              listen port (default: 5990)
       --schedules                run scheduled jobs on their local timers
+  marina db tables              list app tables (local by default)
+  marina db schema <table>      columns and indexes
+  marina db query <sql>          inspect data (--params <json>, --limit 1–1000)
+      --app <slug>               inspect the deployed app database; requires edit access
+      --file <path>             read one SQL statement from a file
+      --write                   permit local changes (queries are read-only by default)
+  marina db migrations          show applied and pending local migrations
+  marina db migrate             apply new migrations without restarting
+  marina db reset --yes         recreate the local database and reapply migrations
+      --dir <project>           select the running local project
+      --schema <name>           local schema (default: public); deployed scope is fixed
+  marina connections list        connections available for local development
+  marina connections describe <connector/id>  operations, schemas, and manifest entry
   marina ai models               models marina.ai can generate with, and who pays
   marina list                    apps in your workspace
   marina open                    open this project's app
@@ -422,6 +437,11 @@ async function main() {
       agent: { type: "string" },
       port: { type: "string" },
       schedules: { type: "boolean" },
+      file: { type: "string" },
+      params: { type: "string" },
+      schema: { type: "string" },
+      write: { type: "boolean" },
+      yes: { type: "boolean" },
       dir: { type: "string" },
       skills: { type: "boolean" },
       "deploy-demo": { type: "boolean" },
@@ -437,6 +457,11 @@ async function main() {
   if (values.help || !command) {
     say(HELP);
     result({ command: "help", usage: HELP.replaceAll(ANSI_ESCAPE, "") });
+    return;
+  }
+  // Local database inspection works without network discovery or CLI login.
+  if (command === "db") {
+    await runDatabaseCommand(positionals, values);
     return;
   }
   await resolveControlPlane();
@@ -547,6 +572,40 @@ async function main() {
         say(`${green("ok")} ${skill.status} Marina skill for ${skill.agent} ${dim(skill.path)}`);
       }
       result({ command: "skills.install", skills: installed });
+      return;
+    }
+    case "connections": {
+      const action = positionals[1] ?? "list";
+      if (action !== "list" && action !== "describe")
+        throw new Error("usage: marina connections list|describe <connector/id> [--json]");
+      const { connections } = await api.listConnections();
+      if (action === "list") {
+        for (const connection of connections)
+          say(
+            `${terminalSafeText(connection.connector)}/${terminalSafeText(connection.connection)}  ${terminalSafeText(connection.name)}${connection.connected ? "" : " (connect your account first)"}`,
+          );
+        if (!connections.length)
+          say("No connections available. Ask an organization admin to grant Dev access.");
+        result({ command: "connections.list", connections });
+      } else {
+        const connection = connections.find(
+          (value) => `${value.connector}/${value.connection}` === positionals[2],
+        );
+        if (!connection) throw new Error("connection unavailable; run marina connections list");
+        const manifest = {
+          connections: {
+            [connection.connector]: [
+              {
+                connection: connection.connection,
+                capabilities: connection.operations.map((operation) => operation.operation),
+              },
+            ],
+          },
+        };
+        const view = { connection, manifest };
+        say(terminalSafeJson(view, 2));
+        result({ command: "connections.describe", ...view });
+      }
       return;
     }
     case "ai": {

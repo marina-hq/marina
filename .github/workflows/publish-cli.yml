@@ -13,9 +13,9 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           package-manager-cache: false
@@ -24,6 +24,33 @@ jobs:
       - name: Verify tag matches package version
         run: node -e "if ('cli-v' + require('./packages/cli/package.json').version !== process.env.GITHUB_REF_NAME) process.exit(1)"
       - run: pnpm check
-      - name: Publish package
-        working-directory: packages/cli
-        run: npm publish --access public
+      - name: Pack the checked build
+        id: package
+        run: |
+          mkdir -p "${RUNNER_TEMP}/marina-cli"
+          npm pack ./packages/cli --ignore-scripts --pack-destination "${RUNNER_TEMP}/marina-cli" --json > "${RUNNER_TEMP}/marina-cli/pack.json"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { basename, join } from 'node:path';
+          const directory = join(process.env.RUNNER_TEMP, 'marina-cli');
+          const packages = JSON.parse(readFileSync(join(directory, 'pack.json'), 'utf8'));
+          assert.equal(packages.length, 1);
+          const pkg = packages[0];
+          assert.equal(pkg.name, '@marina-cloud/cli');
+          assert.equal(pkg.filename, basename(pkg.filename));
+          appendFileSync(process.env.GITHUB_OUTPUT, `path=${join(directory, pkg.filename)}\nversion=${pkg.version}\n`);
+          JS
+      - name: Require deployed compatibility for this exact package
+        env:
+          PACKAGE_PATH: ${{ steps.package.outputs.path }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          node packages/cli/release/verify-compatibility.mjs \
+            --record release/compatibility.json \
+            --key packages/cli/release/compatibility-key.json \
+            --package "${PACKAGE_PATH}" --version "${PACKAGE_VERSION}"
+      - name: Publish the verified package
+        env:
+          PACKAGE_PATH: ${{ steps.package.outputs.path }}
+        run: npm publish "${PACKAGE_PATH}" --access public --ignore-scripts

@@ -1,6 +1,61 @@
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url);
   const method = init.method ?? "GET";
+  if (method === "POST" && url.pathname === "/v1/apps/view-only/db") {
+    return Response.json(
+      { error: { code: "forbidden", message: "you don't have edit access to this app" } },
+      { status: 403 },
+    );
+  }
+  if (method === "POST" && url.pathname === "/v1/apps/orders/db") {
+    const command = JSON.parse(init.body);
+    const target = { app: "orders", app_id: "app-orders", environment: "production" };
+    if (command.action === "tables")
+      return Response.json({ ...target, tables: [{ name: "notes" }], truncated: false });
+    if (command.action === "schema")
+      return Response.json({
+        ...target,
+        table: command.table,
+        columns: [{ name: "body" }],
+        indexes: [],
+      });
+    if (command.action === "query" && !Object.hasOwn(command, "write"))
+      return Response.json({
+        ...target,
+        rows: [{ sql: command.sql, params: command.params }],
+        rowCount: command.limit,
+        truncated: false,
+      });
+  }
+  if (method === "GET" && url.pathname === "/v1/me") {
+    return Response.json({
+      user: { id: "dev-user", name: "Dev user", email: "dev@example.test" },
+      workspace: { id: "dev-workspace", name: "Dev workspace", handle: "dev" },
+      role: "member",
+    });
+  }
+  if (method === "GET" && url.pathname === "/v1/connections") {
+    return Response.json({
+      connections: [
+        {
+          connector: "postgres",
+          connection: "orders",
+          name: "Company orders",
+          auth_mode: "organization",
+          connected: true,
+          operations: [
+            {
+              operation: "query.read",
+              effect: "read",
+              description: "Query orders",
+              input_schema: { type: "object", properties: { sql: { type: "string" } } },
+              output_schema: null,
+            },
+          ],
+        },
+      ],
+    });
+  }
   if (method === "GET" && url.pathname === "/.well-known/marina") {
     const headers = new Headers(init.headers);
     if (
