@@ -42,6 +42,32 @@ marina deploys <deploy-id> --json
 An archive or security refusal may have a null `build_log` because no build was
 run; the refusal and action are still preserved on the deploy attempt.
 
+## Edit an existing app
+
+Use `marina checkout <dashboard-url-or-id> --dir <new-directory> --json` to get
+the latest shared editable source. Source retrieval requires effective edit
+access. Use the app's workspace when signing in. Checkout never replaces a
+nonempty directory, installs dependencies, or runs scripts.
+
+Keep the generated `.marina/project.json` identity and source baseline intact.
+`marina pull --json` reconciles shared changes while preserving local edits.
+When it reports conflicts, inspect its base/local/incoming paths, reconcile the
+working files, and run `marina pull --continue --json`. A null side means deletion
+or absence. Never manually advance `base_revision` to bypass a conflict.
+
+Submit with `marina deploy --json`. Inspect `source_sync` too: if Marina prepared
+different source, local reconciliation may need attention even though the deploy
+succeeded. Proposed versions require publisher review. An update keeps the
+existing app's URL, shares, and production data.
+
+For a distinct app, use `marina copy <dashboard-url-or-id> --name <name>
+--dir <new-directory> --json`. It requires edit access and creates a private,
+unpublished copy of the live version. `--version <id>` stays pinned; `--editable`
+explicitly copies shared editable source. It carries source and migrations, not
+production rows, runtime objects, grants, credentials, schedules, or conversations.
+Use a frontend project's own development command, or `marina dev` for a Marina
+server entrypoint.
+
 ## Develop locally
 
 Discover company data with `marina connections list --json` and inspect a
@@ -52,9 +78,8 @@ a viewer must connect their own account, and background jobs cannot use them.
 
 `marina dev` runs the app on this machine with the production runtime
 contract: local storage and an embedded Postgres (the app's
-`marina/migrations` apply on start), while `marina.capabilities` and
-`marina.connections` calls bridge to Marina under the signed-in user's
-dev-scoped grants. A denied bridged call names the missing grant — an
+`marina/migrations` apply on start), while `marina.connections` calls bridge to
+Marina under the signed-in user's dev-scoped grants. A denied bridged call names the missing grant — an
 organization admin adds it from the connection's Dev access control. Use
 `--port <port>` to change the listen port and `--schedules` to run scheduled
 jobs locally. `marina.ai` bridges too; per-developer usage is metered.

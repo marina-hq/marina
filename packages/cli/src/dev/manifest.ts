@@ -5,7 +5,7 @@ import { join } from "node:path";
  * and authoritatively by the control plane on deploy and on bridged calls. */
 export interface DevConnectionDeclaration {
   connection: string;
-  capabilities: string[];
+  operations: string[];
 }
 
 export interface DevJobDefinition {
@@ -17,7 +17,6 @@ export interface DevManifest {
   name?: string;
   entrypoint: string;
   runtime: { storage?: "v1"; db?: "v1"; ai?: "v1"; jobs?: "v1" };
-  capabilities: string[];
   connections: Record<string, DevConnectionDeclaration[]>;
   jobs: Record<string, DevJobDefinition>;
 }
@@ -42,15 +41,12 @@ export function readDevManifest(dir: string): DevManifest {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("must contain an object");
   const manifest = value as Record<string, unknown>;
+  if ("capabilities" in manifest) fail("declare connections and operations for data access");
   if (typeof manifest.entrypoint !== "string" || manifest.entrypoint.length === 0) {
     fail('needs an "entrypoint" — static projects have no server to develop against');
   }
 
   const runtime = (manifest.runtime ?? {}) as DevManifest["runtime"];
-  const capabilities = Array.isArray(manifest.capabilities)
-    ? manifest.capabilities.filter((name): name is string => typeof name === "string")
-    : [];
-
   const connections: DevManifest["connections"] = {};
   if (manifest.connections !== undefined) {
     if (
@@ -64,15 +60,25 @@ export function readDevManifest(dir: string): DevManifest {
       if (!CONNECTION_ID.test(connector)) fail(`"${connector}" is not a connector name`);
       if (!Array.isArray(declared)) fail(`connections.${connector} must be an array`);
       connections[connector] = declared.map((entry, index) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry))
+          fail(`connections.${connector}[${String(index)}] must be an object`);
         const binding = entry as Record<string, unknown>;
         if (typeof binding.connection !== "string" || !CONNECTION_ID.test(binding.connection)) {
           fail(`connections.${connector}[${String(index)}] needs an explicit "connection" id`);
         }
-        const operations = Array.isArray(binding.capabilities) ? binding.capabilities : [];
-        if (!operations.every((op) => typeof op === "string" && NAME.test(op))) {
+        if (Object.keys(binding).some((key) => key !== "connection" && key !== "operations"))
+          fail("connection declarations accept only connection and operations");
+        const operations = binding.operations;
+        if (
+          !Array.isArray(operations) ||
+          operations.length === 0 ||
+          operations.length > 50 ||
+          !operations.every((op) => typeof op === "string" && NAME.test(op)) ||
+          new Set(operations).size !== operations.length
+        ) {
           fail(`connections.${connector}[${String(index)}] has an invalid operation name`);
         }
-        return { connection: binding.connection, capabilities: operations as string[] };
+        return { connection: binding.connection, operations: operations as string[] };
       });
     }
   }
@@ -81,6 +87,7 @@ export function readDevManifest(dir: string): DevManifest {
   if (manifest.jobs && typeof manifest.jobs === "object" && !Array.isArray(manifest.jobs)) {
     for (const [name, definition] of Object.entries(manifest.jobs)) {
       const job = definition as Record<string, unknown>;
+      if ("capabilities" in job) fail("jobs use the app connections and operations");
       if (typeof job.handler === "string") {
         jobs[name] = {
           handler: job.handler,
@@ -94,7 +101,6 @@ export function readDevManifest(dir: string): DevManifest {
     ...(typeof manifest.name === "string" ? { name: manifest.name } : {}),
     entrypoint: manifest.entrypoint,
     runtime,
-    capabilities,
     connections,
     jobs,
   };

@@ -108,7 +108,7 @@ export class DevJobRunner {
       attempt: status.attempts,
       trigger,
       ...(scheduledFor ? { scheduledFor } : {}),
-      capabilitySession: "marina-local-dev",
+      connectionSession: "marina-local-dev",
     };
     try {
       const response = await fetchApp(

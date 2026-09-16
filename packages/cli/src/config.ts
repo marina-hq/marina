@@ -1,6 +1,7 @@
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -8,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { cliRequestHeaders } from "./identity.ts";
 
@@ -208,10 +210,15 @@ export function clearToken(): void {
   writeProfile(rest);
 }
 
-// Project link: which app this directory deploys to. Committed, like v0.
+// Local project identity. Source uploads exclude the entire .marina directory.
 export interface ProjectLink {
   app: string; // slug
   name?: string;
+  app_id?: string;
+  workspace_id?: string;
+  workspace_slug?: string;
+  control_plane_host?: string;
+  api_origin?: string;
   /** Opaque Marina source version this directory was last deployed from. */
   base_revision?: string;
 }
@@ -220,15 +227,39 @@ const LINK = ".marina/project.json";
 
 export function readLink(dir: string): ProjectLink | null {
   try {
-    return JSON.parse(readFileSync(join(dir, LINK), "utf8")) as ProjectLink;
-  } catch {
-    return null;
+    if (
+      lstatSync(join(dir, ".marina")).isSymbolicLink() ||
+      lstatSync(join(dir, LINK)).isSymbolicLink()
+    )
+      throw new Error("the Marina project link must not be a symbolic link");
+    const link = JSON.parse(readFileSync(join(dir, LINK), "utf8")) as ProjectLink;
+    if (
+      !link ||
+      typeof link.app !== "string" ||
+      !link.app ||
+      (link.base_revision !== undefined && !/^[a-f0-9]{40,64}$/.test(link.base_revision)) ||
+      (!link.app_id &&
+        [link.workspace_id, link.api_origin, link.control_plane_host].some(
+          (value) => value !== undefined,
+        ))
+    )
+      throw new Error(
+        "invalid .marina/project.json; restore the project link or check out a new folder",
+      );
+    return link;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 }
 
 export function writeLink(dir: string, link: ProjectLink): void {
   mkdirSync(join(dir, ".marina"), { recursive: true });
-  writeFileSync(join(dir, LINK), `${JSON.stringify(link, null, 2)}\n`);
+  if (lstatSync(join(dir, ".marina")).isSymbolicLink())
+    throw new Error(".marina must not be a symbolic link");
+  const temporary = join(dir, `${LINK}.${randomUUID()}.tmp`);
+  writeFileSync(temporary, `${JSON.stringify(link, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+  renameSync(temporary, join(dir, LINK));
 }
 
 export const hasPackageJson = (dir: string): boolean => existsSync(join(dir, "package.json"));

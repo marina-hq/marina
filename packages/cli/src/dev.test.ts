@@ -9,8 +9,73 @@ import { devChromeSnippet, injectDevChrome } from "./dev/chrome.ts";
 import { cronMatches } from "./dev/cron.ts";
 import { readDevManifest } from "./dev/manifest.ts";
 import { LocalStorage } from "./dev/storage.ts";
+import { createDevBinding } from "./dev/binding.ts";
 
 const at = (iso: string) => new Date(iso);
+
+test("app previews require manifest declarations and resolve an omitted handle from the app's own bindings", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const binding = createDevBinding({
+    manifest: {
+      entrypoint: "app.ts",
+      runtime: {},
+      jobs: {},
+      connections: { postgres: [{ connection: "orders", operations: ["query.read"] }] },
+    },
+    database: null,
+    storage: null,
+    jobs: null,
+    bridge: {
+      apiUrl: "https://api.example.test",
+      token: "fictional",
+      fetcher: async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Response.json({ value: { rows: [] } });
+      },
+    },
+  });
+  for (const input of [
+    { connector: "postgres", connection: "payroll", operation: "query.read" },
+    { connector: "postgres", connection: "orders", operation: "schema.search" },
+    { connector: "bigquery", operation: "query.read" },
+  ]) {
+    const result = await binding.invoke({
+      protocolVersion: 1,
+      requestId: "test",
+      service: "connections",
+      operation: "invoke",
+      input,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "UNDECLARED");
+  }
+  assert.equal(
+    (
+      await binding.invoke({
+        protocolVersion: 1,
+        requestId: "test",
+        service: "capabilities",
+        operation: "invoke",
+        input: { capability: "mail.send" },
+      })
+    ).ok,
+    false,
+  );
+  assert.equal(calls.length, 0);
+  assert.equal(
+    (
+      await binding.invoke({
+        protocolVersion: 1,
+        requestId: "test",
+        service: "connections",
+        operation: "invoke",
+        input: { connector: "postgres", operation: "query.read", args: { sql: "select 1" } },
+      })
+    ).ok,
+    true,
+  );
+  assert.equal(calls[0]?.connection, "orders");
+});
 
 test("cron matcher covers stars, numbers, lists, ranges, and steps", () => {
   assert.equal(cronMatches("* * * * *", at("2026-09-01T10:30:00Z")), true);
@@ -112,14 +177,14 @@ test("the dev manifest requires an entrypoint and explicit connection ids", () =
       entrypoint: "src/worker.ts",
       runtime: { db: "v1" },
       connections: {
-        mercury: [{ connection: "example_account", capabilities: ["accounts.list"] }],
+        mercury: [{ connection: "example_account", operations: ["accounts.list"] }],
       },
     }),
   );
   const manifest = readDevManifest(dir);
   assert.equal(manifest.entrypoint, "src/worker.ts");
   assert.deepEqual(manifest.connections.mercury, [
-    { connection: "example_account", capabilities: ["accounts.list"] },
+    { connection: "example_account", operations: ["accounts.list"] },
   ]);
   void mkdirSync;
 });
@@ -186,12 +251,10 @@ test("the dev host serves a real app through the local binding with chrome injec
   const manifest = {
     entrypoint: "src/worker.ts",
     runtime: { storage: "v1" as const, jobs: "v1" as const },
-    capabilities: [],
     connections: {},
     jobs: { "test-job": { handler: "testJob" } },
   };
   const { LocalStorage: Store } = await import("./dev/storage.ts");
-  const { createDevBinding } = await import("./dev/binding.ts");
   const { DevJobRunner } = await import("./dev/jobs.ts");
   const jobs = new DevJobRunner(
     manifest,
@@ -257,12 +320,10 @@ test("the dev host serves a real app through the local binding with chrome injec
 });
 
 test("marina.ai bridges generate calls to the control plane", async () => {
-  const { createDevBinding } = await import("./dev/binding.ts");
   const manifest = {
     entrypoint: "app.ts",
     name: "AI test",
     runtime: { ai: "v1" as const },
-    capabilities: [],
     connections: {},
     jobs: {},
   };
@@ -310,4 +371,28 @@ test("marina.ai bridges generate calls to the control plane", async () => {
   });
   assert.equal(denied.ok, false);
   if (!denied.ok) assert.match(denied.error.message, /runtime\.ai: "v1"/);
+});
+
+test("local manifests normalize legacy operations and reject ambiguous authority", () => {
+  const dir = mkdtempSync(join(tmpdir(), "marina-dev-operations-"));
+  const read = (binding: unknown) => {
+    writeFileSync(
+      join(dir, "marina.json"),
+      JSON.stringify({ entrypoint: "app.ts", connections: { bigquery: [binding] } }),
+    );
+    return readDevManifest(dir).connections;
+  };
+  assert.deepEqual(read({ connection: "analytics", operations: ["query.read"] }), {
+    bigquery: [{ connection: "analytics", operations: ["query.read"] }],
+  });
+  assert.throws(() => read({ connection: "analytics", capabilities: ["query.read"] }));
+  for (const binding of [
+    { connection: "analytics" },
+    { connection: "analytics", operations: ["query.read"], capabilities: ["schema.search"] },
+    { connection: "analytics", operations: ["query.read", "query.read"] },
+    { connection: "analytics", capabilities: ["query.read", "query.read"] },
+    { connection: "analytics", operations: [] },
+    null,
+  ])
+    assert.throws(() => read(binding));
 });

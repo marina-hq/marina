@@ -5,8 +5,7 @@ import type { DevManifest } from "./manifest.ts";
 import type { LocalStorage } from "./storage.ts";
 
 /** The laptop's implementation of the object-capability every Marina app
- * receives as env.MARINA: storage, db, and jobs are local; capabilities and
- * connections bridge to the control plane under the developer's own grants;
+ * receives as env.MARINA: storage, db, and jobs are local; connections bridge to the control plane under the developer's own grants;
  * ai bridges too, metered per developer by the control plane. */
 
 type RuntimeResponse =
@@ -102,14 +101,27 @@ export function createDevBinding(context: DevBindingContext) {
             }
             return failure("INVALID_INPUT", `unsupported jobs operation ${request.operation}`);
           }
-          case "capabilities":
-          case "connections":
+          case "connections": {
+            const input = request.input as Record<string, unknown>;
+            const connector = String(input.connector);
+            const operation = String(input.operation);
+            const declarations = context.manifest.connections[connector] ?? [];
+            const connection =
+              input.connection ??
+              (declarations.length === 1 ? declarations[0]?.connection : undefined);
+            const declaration = declarations.find((entry) => entry.connection === connection);
+            if (!declaration?.operations.includes(operation))
+              return undeclared(
+                `${connector}/${String(connection ?? "unspecified")}.${operation}`,
+                `the connection and operation under connections.${connector}`,
+              );
             return ok(
               await bridgeInvoke(context.bridge, {
-                service: request.service,
-                input: request.input as Record<string, unknown>,
+                service: "connections",
+                input: { ...input, connection },
               }),
             );
+          }
           default:
             return failure("UNDECLARED", `unsupported runtime service ${request.service}`);
         }

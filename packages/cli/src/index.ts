@@ -35,6 +35,15 @@ import { buildOutputParent, pack } from "./pack.ts";
 import { readManifest, resolveAppName } from "./manifest.ts";
 import { installSkills } from "./skills.ts";
 import { availableUpdate } from "./update.ts";
+import {
+  acceptDeployedSource,
+  assertNoPendingPull,
+  checkProjectContext,
+  checkoutApp,
+  continuePull,
+  makeCopy,
+  pullSource,
+} from "./handoff.ts";
 
 // Exit codes are part of the contract (agents read them):
 //   0 ok · 1 error · 2 unauthenticated · 3 refused
@@ -48,6 +57,13 @@ const HELP = `${bold("marina")} — deploy internal apps
   marina skills install          install or update the Marina deployment skill
       --agent <agent>            codex, claude, or all (default: detected agents)
   marina deploy [dir]            zip the directory and deploy it
+  marina checkout <app-url-or-id> download editable source into a new directory
+      --dir <directory>          choose the checkout destination
+  marina pull                    fetch shared changes, preserving local edits
+      --continue                finish an explicit conflict reconciliation
+  marina copy <app-url-or-id> --name <name>  create a private, unpublished copy
+      --editable                copy shared editable source instead of the live version
+      --version <version-id>    copy one exact version
   marina deploy demo             deploy the bundled Hello Marina demo
       --name <name>              override marina.json, package.json, or directory name
       --app <slug>               deploy into an existing app
@@ -85,9 +101,9 @@ const ANSI_ESCAPE = new RegExp(`${String.fromCodePoint(27)}\\[[0-9;]*m`, "g");
 let shouldCheckForUpdates = false;
 
 /** Which app a command acts on: --app, else this directory's link. */
-function targetApp(flag?: string): string {
-  const linked = readLink(resolve("."))?.app;
-  const app = flag ?? linked;
+async function targetApp(flag?: string): Promise<string> {
+  const link = flag ? null : await checkProjectContext(resolve("."));
+  const app = flag ?? link?.app_id ?? link?.app;
   if (!app) {
     failure("no_app", "no app here — pass --app <slug>, or deploy from a linked project");
     process.exit(1);
@@ -120,6 +136,7 @@ interface DeployResult {
   preparation: api.PreparationReport | null;
   live: boolean;
   demo: boolean;
+  source_sync?: import("./handoff.ts").PullResult | { status: "pending"; message: string };
 }
 
 async function deploy(
@@ -142,8 +159,9 @@ async function deploy(
     name = flags.name?.trim() || DEMO_MANIFEST.name;
   } else {
     dir = resolve(dirArg ?? ".");
-    link = readLink(dir);
-    target = flags.app ?? link?.app;
+    link = await checkProjectContext(dir, flags.app);
+    assertNoPendingPull(dir);
+    target = link?.app_id ?? flags.app ?? link?.app;
     const manifest = readManifest(dir);
     name = resolveAppName(dir, flags.name, manifest, link?.name);
     const builtFrom = buildOutputParent(dir);
@@ -224,20 +242,33 @@ async function deploy(
     process.exit(1);
   }
 
-  // Write the manifest back so the next deploy needs no flags at all.
   const slug = deployed.app_slug ?? "";
-  if (
-    dir &&
-    (!link ||
-      link.app !== slug ||
-      link.name !== name ||
-      link.base_revision !== (deployed.source_revision ?? undefined))
-  ) {
-    writeLink(dir, {
-      app: slug,
-      name,
-      ...(deployed.source_revision ? { base_revision: deployed.source_revision } : {}),
-    });
+  let sourceSync: DeployResult["source_sync"];
+  if (dir && deployed.source_revision) {
+    try {
+      const source = await api.getAppSource(target ?? slug, deployed.source_revision);
+      sourceSync = acceptDeployedSource(
+        dir,
+        source,
+        await api.downloadSource(source),
+        packed.zip,
+        link,
+      );
+      if (sourceSync.status === "conflicts")
+        note(
+          "Deployed successfully. Reconcile the source preparation conflicts, then run marina pull --continue.",
+        );
+    } catch (error) {
+      // Report the real deploy outcome even if source retrieval fails. Keep the
+      // old baseline, so a later submission cannot accidentally skip changes.
+      sourceSync = { status: "pending", message: (error as Error).message };
+      if (!link) writeLink(dir, { app: slug, name });
+      note(
+        `Deployed successfully; local source sync needs attention: ${terminalSafeText(sourceSync.message)}`,
+      );
+    }
+  } else if (dir) {
+    writeLink(dir, { ...link, app: slug, name });
   }
 
   const published = deployed.version_state === "published";
@@ -275,13 +306,14 @@ async function deploy(
     preparation: deployed.preparation,
     live: published,
     demo: dirArg === "demo",
+    ...(sourceSync ? { source_sync: sourceSync } : {}),
   };
   if (emitResult) result(payload);
   return payload;
 }
 
 async function status(appFlag?: string) {
-  const app = targetApp(appFlag);
+  const app = await targetApp(appFlag);
   const [detail, history] = await Promise.all([api.getApp(app), api.listDeploys(app, 1)]);
   const last = history[0];
 
@@ -324,7 +356,7 @@ async function deploys(appFlag?: string, deployId?: string) {
     result({ command: "deploys.show", deploy: attempt });
     return;
   }
-  const app = targetApp(appFlag);
+  const app = await targetApp(appFlag);
   const rows = await api.listDeploys(app);
   if (rows.length === 0) say("no deploys yet");
   for (const row of rows) {
@@ -348,7 +380,7 @@ async function logs(
   appFlag: string | undefined,
   flags: { level?: string; limit?: string; cursor?: string },
 ) {
-  const app = targetApp(appFlag);
+  const app = await targetApp(appFlag);
   const parsedLimit = flags.limit === undefined ? 100 : Number(flags.limit);
   if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 200) {
     failure("invalid_input", "--limit must be an integer from 1 to 200");
@@ -373,7 +405,7 @@ async function logs(
 }
 
 async function versions(appFlag?: string) {
-  const app = targetApp(appFlag);
+  const app = await targetApp(appFlag);
   const [rows, detail] = await Promise.all([api.listVersions(app), api.getApp(app)]);
   for (const version of rows) {
     const current = version.id === detail.app.current_version_id;
@@ -391,7 +423,7 @@ async function versions(appFlag?: string) {
 
 /** Roll back by shipping an old version again — history is never rewritten. */
 async function rollback(appFlag: string | undefined, to: string | undefined) {
-  const app = targetApp(appFlag);
+  const app = await targetApp(appFlag);
   const [rows, detail] = await Promise.all([api.listVersions(app), api.getApp(app)]);
   const published = rows.filter((v) => v.state === "published");
 
@@ -443,6 +475,9 @@ async function main() {
       write: { type: "boolean" },
       yes: { type: "boolean" },
       dir: { type: "string" },
+      continue: { type: "boolean" },
+      editable: { type: "boolean" },
+      version: { type: "string" },
       skills: { type: "boolean" },
       "deploy-demo": { type: "boolean" },
       json: { type: "boolean" },
@@ -468,6 +503,73 @@ async function main() {
   shouldCheckForUpdates = true;
 
   switch (command) {
+    case "checkout":
+    case "copy": {
+      if (
+        !positionals[1] ||
+        (command === "copy" && !values.name) ||
+        (values.editable && values.version)
+      )
+        throw new ApiError(
+          "invalid_input",
+          "use marina checkout <app-url-or-id>, or marina copy <app-url-or-id> --name <name>; select at most one of --editable and --version",
+          400,
+        );
+      const { source, dir } =
+        command === "checkout"
+          ? await checkoutApp(positionals[1], values.dir)
+          : await makeCopy(positionals[1], values.name!, values.dir, {
+              ...(values.editable ? { editable: true } : {}),
+              ...(values.version ? { version: values.version } : {}),
+            });
+      say(`${green("ok")} ${terminalSafeText(source.app.name)} ${dim(dir)}`);
+      if (source.unpublished_changes)
+        say(
+          source.live_version
+            ? `Editing the latest changes; v${source.live_version.number} is currently live.`
+            : "This app is not published yet.",
+        );
+      const nextSteps = [
+        "Review the source and install its dependencies if needed.",
+        "Preview using the project’s development command; use marina dev for apps with a Marina server entrypoint.",
+        "Run marina deploy when ready to submit your changes.",
+      ];
+      for (const step of nextSteps) say(dim(step));
+      result({ command, path: dir, ...source, next_steps: nextSteps });
+      return;
+    }
+    case "pull": {
+      const dir = resolve(values.dir ?? ".");
+      const link = await checkProjectContext(dir);
+      if (!link?.app_id)
+        throw new ApiError(
+          "baseline_missing",
+          "check out the app into a new directory before using marina pull",
+          409,
+        );
+      let pulled;
+      if (values.continue) pulled = continuePull(dir);
+      else {
+        assertNoPendingPull(dir);
+        const source = await api.getAppSource(link.app_id);
+        pulled = pullSource(dir, source, await api.downloadSource(source));
+      }
+      if (pulled.status === "conflicts") {
+        failure(
+          "source_conflicts",
+          "reconcile local and incoming changes, then run marina pull --continue",
+          { ...pulled },
+        );
+        for (const conflict of pulled.conflicts) say(terminalSafeText(conflict.path));
+        process.exitCode = 1;
+      } else {
+        say(
+          `${green("ok")} ${pulled.status === "up_to_date" ? "already up to date" : "source updated; local edits preserved"}`,
+        );
+        result({ command: "pull", ...pulled });
+      }
+      return;
+    }
     case "setup":
     case "login": {
       if (!process.env.MARINA_TOKEN) {
@@ -537,6 +639,7 @@ async function main() {
     case "dev": {
       const { runDev } = await import("./dev/index.ts");
       try {
+        await checkProjectContext(resolve(values.dir ?? positionals[1] ?? "."));
         await runDev({
           dir: values.dir ?? positionals[1],
           port: values.port,
@@ -597,7 +700,7 @@ async function main() {
             [connection.connector]: [
               {
                 connection: connection.connection,
-                capabilities: connection.operations.map((operation) => operation.operation),
+                operations: connection.operations.map((operation) => operation.operation),
               },
             ],
           },
@@ -661,7 +764,7 @@ async function main() {
       return;
     }
     case "open": {
-      const app = targetApp(values.app);
+      const app = await targetApp(values.app);
       // The real address; the gateway's auth handshake handles sign-in.
       const url = await api.getAppUrl(app);
       if (!isJsonMode()) {

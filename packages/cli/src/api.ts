@@ -36,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /** The signed-in developer and workspace, for `marina dev` and setup. */
 export async function me(): Promise<{
   user: { id: string; name: string; email: string };
-  workspace: { id: string; name: string; handle: string };
+  workspace: { id: string; name: string; handle: string; slug: string };
   role: string;
 }> {
   return request("/v1/me");
@@ -309,3 +309,82 @@ export interface DeveloperConnection {
 }
 export const listConnections = (): Promise<{ connections: DeveloperConnection[] }> =>
   request("/v1/connections");
+
+export interface AppSource {
+  app: { id: string; slug: string; name: string };
+  workspace: { id: string; slug: string; name: string };
+  revision: string;
+  editable_revision: string;
+  snapshot_digest: string;
+  live_version: { id: string; number: number } | null;
+  unpublished_changes: boolean;
+  dashboard_url: string;
+  archive_url: string;
+}
+
+export function getAppSource(app: string, revision?: string): Promise<AppSource> {
+  return request(
+    `/v1/apps/${encodeURIComponent(app)}/source${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`,
+  );
+}
+
+export function copyApp(
+  app: string,
+  input: { name: string; request_id: string; editable?: boolean; version?: string },
+): Promise<AppSource> {
+  return request(`/v1/apps/${encodeURIComponent(app)}/copies`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function downloadSource(source: AppSource): Promise<Uint8Array> {
+  const token = getToken();
+  if (!token) throw new ApiError("unauthenticated", "not signed in — run marina setup", 401);
+  // Construct the route from identifiers, never follow a provider URL from metadata.
+  const response = await fetch(
+    `${apiUrl()}/v1/apps/${encodeURIComponent(source.app.id)}/source/archive?revision=${encodeURIComponent(source.revision)}`,
+    {
+      headers: { ...cliRequestHeaders(), authorization: `Bearer ${token}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(60_000),
+    },
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: { code?: string; message?: string };
+    };
+    throw new ApiError(
+      body.error?.code ?? "source_unavailable",
+      body.error?.message ?? "source download failed",
+      response.status,
+    );
+  }
+  if (response.headers.get("x-marina-source-revision") !== source.revision)
+    throw new Error("source revision changed during download");
+  const maximum = 100 * 1024 * 1024;
+  if (Number(response.headers.get("content-length")) > maximum)
+    throw new Error("source archive is too large");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("source archive is empty");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maximum) {
+      await reader.cancel();
+      throw new Error("source archive is too large");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}

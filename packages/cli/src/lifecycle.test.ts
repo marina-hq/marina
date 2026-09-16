@@ -121,7 +121,7 @@ describe("CLI profile and skill lifecycle", () => {
     assert.equal(described.status, 0, described.stderr);
     const view = json(described.stdout);
     assert.deepEqual(view.manifest, {
-      connections: { postgres: [{ connection: "orders", capabilities: ["query.read"] }] },
+      connections: { postgres: [{ connection: "orders", operations: ["query.read"] }] },
     });
     assert.equal(view.command, "connections.describe");
     const missing = run(["connections", "describe", "postgres/missing", "--json"], environment);
