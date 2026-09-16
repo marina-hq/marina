@@ -1,5 +1,4 @@
-/** The laptop half of the local-development bridge: capability and
- * connection calls travel to the control plane with the developer's own
+/** The laptop half of the local-development bridge: connection calls travel to the control plane with the developer's own
  * token and execute inside the same trusted boundary as production.
  * Credentials never reach this process — only results do. */
 
@@ -34,7 +33,7 @@ function mapErrorCode(code: string, status: number): BridgeErrorPayload["code"] 
 }
 
 interface RawInvoke {
-  service: "ai" | "capabilities" | "connections";
+  service: "ai" | "connections";
   input: Record<string, unknown>;
 }
 
@@ -44,14 +43,6 @@ function devRuntimeBody(invoke: RawInvoke, appId: string | undefined): Record<st
       service: "ai",
       args: invoke.input.args ?? {},
       ...(appId ? { app_id: appId } : {}),
-    };
-  }
-  if (invoke.service === "capabilities") {
-    return {
-      service: "capabilities",
-      capability: invoke.input.capability,
-      args: invoke.input.args ?? {},
-      ...(invoke.input.requestId ? { request_id: invoke.input.requestId } : {}),
     };
   }
   return {

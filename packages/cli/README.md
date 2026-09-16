@@ -66,6 +66,46 @@ cut-paper collage as a new app. Pass `--name` to override its name.
 
 To deploy a real directory literally named `demo`, pass `./demo`.
 
+## Edit or copy an existing app
+
+```sh
+marina checkout https://marina.cloud/acme/apps/orders --dir orders --json
+cd orders
+marina pull --json
+marina deploy --json
+```
+
+Checkout requires edit access, including owner, administrator, editor, or
+publisher access. It downloads the latest shared editable source into a new or
+empty folder, without running installation scripts. The folder is bound to that
+app and workspace, so switching your CLI profile cannot redirect a deployment.
+Private Studio drafts are not included. Frontend apps use their own development
+command; apps with a Marina server entrypoint use `marina dev`.
+
+`marina pull` preserves local changes and merges independent file changes.
+If both sides changed a file, its base, local, and incoming contents are retained
+under `.marina/source/pending`. Reconcile the working files, then run
+`marina pull --continue --json`. A null conflict side means the file was absent.
+Deployment is blocked until reconciliation finishes. Keep `.marina` local and
+never rewrite `base_revision` to bypass a stale-source refusal.
+
+A successful deploy fetches the canonical source Marina prepared, preserving
+edits made during the build. Check `source_sync` in the result; source conflicts
+can still need attention after the deployment itself succeeds. Publisher review
+continues to determine when a proposed version goes live.
+
+To create a separate private, unpublished app in the same workspace:
+
+```sh
+marina copy https://marina.cloud/acme/apps/orders --name "Regional orders" --dir regional-orders --json
+```
+
+Copying also requires edit access. It defaults to the live version; `--version
+<id>` pins a specific version, and `--editable` explicitly selects shared editable
+source. Source and migrations are copied. Production data, runtime storage,
+shares, credentials, private conversations, and active jobs are not inherited.
+Company connection declarations require authorization for the new app.
+
 ## Develop and inspect local data
 
 Discover available company connections and the operations they support:

@@ -26,6 +26,10 @@ export interface DevHostOptions {
   identity: { userId: string; workspaceId: string; userLabel: string; appName: string };
   log: (line: string) => void;
   beforeReload?: () => Promise<void>;
+  /** Trusted host chrome; Studio supplies its own preview label. */
+  chrome?: string;
+  /** Trusted preview origin; local CLI requests use the loopback origin. */
+  origin?: string;
 }
 
 function entrypointSource(projectDir: string, entrypoint: string): string {
@@ -85,8 +89,12 @@ function toRequest(
   req: IncomingMessage,
   port: number,
   identity: DevHostOptions["identity"],
+  origin?: string,
 ): Request {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `localhost:${String(port)}`}`);
+  const url = new URL(
+    req.url ?? "/",
+    origin ?? `http://${req.headers.host ?? `localhost:${String(port)}`}`,
+  );
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
     if (typeof value === "string") headers.set(name, value);
@@ -96,7 +104,7 @@ function toRequest(
   // host does the same for the signed-in developer.
   headers.set("x-platform-user-id", identity.userId);
   headers.set("x-platform-workspace-id", identity.workspaceId);
-  headers.set("x-platform-capability-session", "marina-local-dev");
+  headers.set("x-platform-connection-session", "marina-local-dev");
   const method = req.method ?? "GET";
   const body =
     method === "GET" || method === "HEAD"
@@ -114,10 +122,12 @@ async function writeResponse(
   res: ServerResponse,
   chrome: string,
 ): Promise<void> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string | string[]> = {};
   response.headers.forEach((value, name) => {
     headers[name] = value;
   });
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length) headers["set-cookie"] = cookies;
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("text/html")) {
     const html = injectDevChrome(await response.text(), chrome);
@@ -151,10 +161,12 @@ export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
   mkdirSync(options.buildDir, { recursive: true });
   let app = await bundle(options);
   let reloadBlocked = false;
-  const chrome = devChromeSnippet({
-    appName: options.identity.appName,
-    userLabel: options.identity.userLabel,
-  });
+  const chrome =
+    options.chrome ??
+    devChromeSnippet({
+      appName: options.identity.appName,
+      userLabel: options.identity.userLabel,
+    });
 
   const fetchApp = (request: Request): Promise<Response> =>
     Promise.resolve(
@@ -178,7 +190,7 @@ export async function startDevHost(options: DevHostOptions): Promise<DevHost> {
       return;
     }
     Promise.resolve()
-      .then(() => fetchApp(toRequest(req, port, options.identity)))
+      .then(() => fetchApp(toRequest(req, port, options.identity, options.origin)))
       .then((response) => writeResponse(response, res, chrome))
       .catch((error: Error) => {
         res.writeHead(500, { "content-type": "text/plain" });
