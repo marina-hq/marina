@@ -49,7 +49,7 @@ globalThis.fetch = async (input, init = {}) => {
       keys: [
         {
           id: "key-1",
-          name: "GitHub Actions",
+          name: "GitHub \u001b[31mActions\nforged",
           prefix: "mak_abcdefgh",
           scopes: ["builds:read", "builds:publish"],
           created_at: "2026-09-22T00:00:00.000Z",

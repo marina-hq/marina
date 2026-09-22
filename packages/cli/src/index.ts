@@ -472,7 +472,7 @@ async function keys(
     for (const key of rows) {
       const expires = key.expires_at ? ` expires ${key.expires_at.slice(0, 10)}` : "";
       say(
-        `${bold(key.name)} ${dim(key.prefix)}…  ${key.scopes.join(" ")}${dim(expires)}  ${dim(key.id)}`,
+        `${bold(terminalSafeText(key.name))} ${dim(key.prefix)}…  ${key.scopes.join(" ")}${dim(expires)}  ${dim(key.id)}`,
       );
     }
     result({ command: "keys", app, keys: rows });
@@ -493,11 +493,19 @@ async function keys(
       scopes: values.scope,
       ...(days === undefined ? {} : { expires_in_days: Number(days) }),
     });
-    say(`${green("ok")} created ${bold(created.name)} (${created.scopes.join(" ")})`);
-    say(`   ${created.token}`);
     say(
-      dim("   Copy it now; Marina never shows it again. Send it as `Authorization: Bearer <key>`."),
+      `${green("ok")} created ${bold(terminalSafeText(created.name))} (${created.scopes.join(" ")})`,
     );
+    // In JSON mode the key is only in the result on stdout; human lines go to
+    // stderr, which CI logs record.
+    if (!isJsonMode()) {
+      say(`   ${created.token}`);
+      say(
+        dim(
+          "   Copy it now; Marina never shows it again. Send it as `Authorization: Bearer <key>`.",
+        ),
+      );
+    }
     result({ command: "keys create", app, key: created });
     return;
   }
@@ -507,7 +515,9 @@ async function keys(
       process.exit(1);
     }
     const revoked = await api.revokeAppKey(app, keyId);
-    say(`${green("ok")} revoked ${bold(revoked.name)}; it stops working within 30 seconds`);
+    say(
+      `${green("ok")} revoked ${bold(terminalSafeText(revoked.name))}; it stops working within 30 seconds`,
+    );
     result({ command: "keys revoke", app, key: revoked });
     return;
   }

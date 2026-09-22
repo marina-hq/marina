@@ -69,11 +69,17 @@ describe("CLI profile and skill lifecycle", () => {
     const key = json(created.stdout).key as Record<string, unknown>;
     assert.deepEqual(key.scopes, ["builds:read", "builds:publish"]);
     assert.equal(key.token, "mak_onlyonce");
+    // CI logs record stderr: the key must appear only in the JSON result.
+    assert.equal(created.stderr.includes("onlyonce"), false);
 
     const listed = run(["keys", "--app", "builds", "--json"], environment);
     assert.equal(listed.status, 0, listed.stderr);
     assert.equal(listed.stdout.includes("onlyonce"), false);
     assert.equal((json(listed.stdout).keys as unknown[]).length, 1);
+    // Key names are escaped before they reach a terminal.
+    assert.equal(listed.stderr.includes("\u001b[31m"), false);
+    assert.equal(listed.stderr.includes("Actions\nforged"), false);
+    assert.match(listed.stderr, /GitHub \\u\{001b\}\[31mActions\\nforged/);
 
     const revoked = run(["keys", "revoke", "key-1", "--app", "builds", "--json"], environment);
     assert.equal(revoked.status, 0, revoked.stderr);
