@@ -16,7 +16,7 @@ export interface DevJobDefinition {
 export interface DevManifest {
   name?: string;
   entrypoint: string;
-  runtime: { storage?: "v1"; db?: "v1"; ai?: "v1"; jobs?: "v1" };
+  runtime: { storage?: "v1"; db?: "v1"; ai?: "v1"; jobs?: "v1"; grants?: "v1" };
   connections: Record<string, DevConnectionDeclaration[]>;
   jobs: Record<string, DevJobDefinition>;
 }

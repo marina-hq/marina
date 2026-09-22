@@ -27,6 +27,40 @@ globalThis.fetch = async (input, init = {}) => {
         truncated: false,
       });
   }
+  if (url.pathname === "/v1/apps/builds/keys" && method === "POST") {
+    const input = JSON.parse(init.body);
+    return Response.json(
+      {
+        key: {
+          id: "key-1",
+          name: input.name,
+          prefix: "mak_abcdefgh",
+          scopes: input.scopes,
+          created_at: "2026-09-22T00:00:00.000Z",
+          expires_at: input.expires_in_days ? "2026-10-22T00:00:00.000Z" : null,
+          token: "mak_onlyonce",
+        },
+      },
+      { status: 201 },
+    );
+  }
+  if (url.pathname === "/v1/apps/builds/keys" && method === "GET") {
+    return Response.json({
+      keys: [
+        {
+          id: "key-1",
+          name: "GitHub Actions",
+          prefix: "mak_abcdefgh",
+          scopes: ["builds:read", "builds:publish"],
+          created_at: "2026-09-22T00:00:00.000Z",
+          expires_at: null,
+        },
+      ],
+    });
+  }
+  if (url.pathname === "/v1/apps/builds/keys/key-1" && method === "DELETE") {
+    return Response.json({ key: { id: "key-1", name: "GitHub Actions", prefix: "mak_abcdefgh" } });
+  }
   if (method === "GET" && url.pathname === "/v1/me") {
     return Response.json({
       user: { id: "dev-user", name: "Dev user", email: "dev@example.test" },

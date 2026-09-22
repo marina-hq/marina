@@ -97,14 +97,29 @@ function toRequest(
   );
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
+    // Like the gateway, drop every identity header the client claimed.
+    if (name.startsWith("x-platform-")) continue;
     if (typeof value === "string") headers.set(name, value);
     else if (Array.isArray(value)) headers.set(name, value.join(", "));
   }
-  // The gateway strips inbound identity headers and signs its own; the local
-  // host does the same for the signed-in developer.
-  headers.set("x-platform-user-id", identity.userId);
-  headers.set("x-platform-workspace-id", identity.workspaceId);
-  headers.set("x-platform-connection-session", "marina-local-dev");
+  // A grant link reaches the app like it does in production: without the
+  // grant, and without any browser identity.
+  const grant = url.searchParams.get("marina_grant");
+  if (grant !== null) {
+    url.searchParams.delete("marina_grant");
+    headers.delete("cookie");
+    headers.delete("authorization");
+    headers.set("x-platform-principal", "grant");
+    headers.set("x-platform-grant-id", grant);
+    headers.set("x-platform-workspace-id", identity.workspaceId);
+  } else {
+    // The gateway sets identity for the signed-in viewer; the local host does
+    // the same for the signed-in developer.
+    headers.set("x-platform-principal", "user");
+    headers.set("x-platform-user-id", identity.userId);
+    headers.set("x-platform-workspace-id", identity.workspaceId);
+    headers.set("x-platform-connection-session", "marina-local-dev");
+  }
   const method = req.method ?? "GET";
   const body =
     method === "GET" || method === "HEAD"

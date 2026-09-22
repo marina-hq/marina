@@ -107,6 +107,40 @@ status and `marina db migrate --json` applies them explicitly. Add new migration
 files rather than changing applied ones. `marina db reset --yes` deletes local
 database records and reapplies migrations, preserving local file storage.
 
+## App keys for automation
+
+When CI or another non-browser caller must call the app, declare scopes in
+`marina.json` (`"access": { "scopes": { "builds:publish": "Publish builds" } }`,
+which requires an `entrypoint`), deploy, then create a key:
+`marina keys create --app <slug> --name <name> --scope <scope> --json`. The
+secret is returned once; store it in the caller's secret store. Callers send
+`Authorization: Bearer <key>`. The app receives `x-platform-principal: app-key`
+and `x-platform-scopes`, and must check the scope for each endpoint. Keys
+cannot deploy; list them with `marina keys --app <slug> --json` and revoke with
+`marina keys revoke <key-id> --app <slug>`.
+
+## Temporary links without sign-in
+
+When a request without a browser session must reach one route (an iOS
+installation manifest or IPA, an Apple profile service callback), declare
+`"runtime": { "grants": "v1" }` and call
+`marina.grants.create({ path, methods, expiresIn, maxBodyBytes })` from a
+signed-in request. It returns `{ url, token, expiresAt }`; the link opens only
+that exact path, with no other query parameters, for at most 15 minutes. A GET
+link also answers HEAD and range requests. The app receives
+`x-platform-principal: grant` and no user identity, and must still validate
+what the link delivers.
+
+## Large files
+
+With `runtime.storage`, `marina.storage.get` returns at most 64 MiB in memory.
+For larger objects use `getStream(key, { range })`, `head(key)`, and
+`put(key, stream, { size, sha256 })` (streamed puts up to 1 GiB). Requests to
+an app carry at most 100 MB of body and share 128 MB of memory, so upload big
+artifacts in parts (for example 8 MiB, each with `sha256`) and serve them by
+streaming the parts in order. `docs/runtime-storage.md` in the Marina repo
+lists every limit.
+
 ## Create a demo
 
 For a first demo, run `marina deploy demo --json`. This deploys the bundled

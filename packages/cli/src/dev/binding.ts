@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { BridgeError, bridgeInvoke, type BridgeDependencies } from "./bridge.ts";
 import type { LocalDatabase } from "./db.ts";
 import type { DevJobRunner } from "./jobs.ts";
@@ -29,6 +30,8 @@ export interface DevBindingContext {
   database: LocalDatabase | null;
   jobs: DevJobRunner | null;
   bridge: BridgeDependencies;
+  /** Local origin used for grant URLs; defaults to the standard dev port. */
+  origin?: string;
 }
 
 const ok = (value: unknown): RuntimeResponse => ({ ok: true, value });
@@ -36,6 +39,24 @@ const failure = (code: string, message: string, retryable = false): RuntimeRespo
   ok: false,
   error: { code, message, retryable },
 });
+
+/** The production grant path rules, repeated here because the published CLI
+ * cannot import Marina's internal contracts. */
+function grantPathError(path: unknown): string | null {
+  if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//"))
+    return "grant path must start with a single /";
+  if (new TextEncoder().encode(path).byteLength > 1024)
+    return "grant path must be at most 1024 bytes";
+  if (/[?#\s\\]/.test(path))
+    return "grant path must not contain a query, fragment, whitespace, or backslash";
+  if (path.split("/").some((segment) => segment === "." || segment === ".."))
+    return "grant path must not contain . or .. segments";
+  if (path.startsWith("/__marina/") || path.startsWith("/.marina/"))
+    return "platform paths cannot be granted";
+  if (new URL(path, "http://grant.invalid").pathname !== path)
+    return "grant path must be in normalized URL form";
+  return null;
+}
 
 function undeclared(service: string, declaration: string): RuntimeResponse {
   return failure(
@@ -52,9 +73,22 @@ export function createDevBinding(context: DevBindingContext) {
           case "storage": {
             if (!context.storage) return undeclared("storage", 'runtime.storage: "v1"');
             const input = request.input as never;
-            if (request.operation === "put") return ok(context.storage.put(input));
-            if (request.operation === "get")
-              return ok(context.storage.get((input as { key: string }).key));
+            if (request.operation === "put") return ok(await context.storage.put(input));
+            if (request.operation === "get") {
+              const read = input as {
+                key: string;
+                range?: { offset: number; length?: number } | { suffix: number };
+                stream?: boolean;
+              };
+              return ok(
+                context.storage.get(read.key, {
+                  ...(read.range ? { range: read.range } : {}),
+                  stream: read.stream === true,
+                }),
+              );
+            }
+            if (request.operation === "head")
+              return ok(context.storage.head((input as { key: string }).key));
             if (request.operation === "delete") {
               context.storage.delete((input as { key: string }).key);
               return ok(null);
@@ -121,6 +155,26 @@ export function createDevBinding(context: DevBindingContext) {
                 input: { ...input, connection },
               }),
             );
+          }
+          case "grants": {
+            if (context.manifest.runtime.grants !== "v1")
+              return undeclared("grants", 'runtime.grants: "v1"');
+            if (request.operation !== "create")
+              return failure("INVALID_INPUT", `unsupported grants operation ${request.operation}`);
+            // Local links are not signed: the dev host already trusts every
+            // request. They keep the production shape so app code is unchanged.
+            const input = request.input as { path: string; expiresIn?: number };
+            const pathError = grantPathError(input.path);
+            if (pathError) return failure("INVALID_INPUT", pathError);
+            const token = `dev.${randomUUID()}`;
+            const url = new URL(context.origin ?? "http://localhost:5990");
+            url.pathname = input.path;
+            url.searchParams.set("marina_grant", token);
+            return ok({
+              url: url.toString(),
+              token,
+              expiresAt: new Date(Date.now() + (input.expiresIn ?? 900) * 1000).toISOString(),
+            });
           }
           default:
             return failure("UNDECLARED", `unsupported runtime service ${request.service}`);
