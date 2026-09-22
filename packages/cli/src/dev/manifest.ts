@@ -16,7 +16,7 @@ export interface DevJobDefinition {
 export interface DevManifest {
   name?: string;
   entrypoint: string;
-  runtime: { storage?: "v1"; db?: "v1"; ai?: "v1"; jobs?: "v1"; grants?: "v1" };
+  runtime: { storage?: "v1"; db?: "v1"; ai?: "v1"; jobs?: "v1"; grants?: "v1"; secrets?: string[] };
   connections: Record<string, DevConnectionDeclaration[]>;
   jobs: Record<string, DevJobDefinition>;
 }
@@ -47,6 +47,16 @@ export function readDevManifest(dir: string): DevManifest {
   }
 
   const runtime = (manifest.runtime ?? {}) as DevManifest["runtime"];
+  if (
+    runtime.secrets !== undefined &&
+    (!Array.isArray(runtime.secrets) ||
+      runtime.secrets.length > 32 ||
+      runtime.secrets.some(
+        (name) => typeof name !== "string" || !/^[A-Z][A-Z0-9_]{0,63}$/.test(name),
+      ) ||
+      new Set(runtime.secrets).size !== runtime.secrets.length)
+  )
+    fail("runtime.secrets must be a unique list of up to 32 uppercase names");
   const connections: DevManifest["connections"] = {};
   if (manifest.connections !== undefined) {
     if (

@@ -187,11 +187,11 @@ describe("CLI profile and skill lifecycle", () => {
   });
   after(() => rmSync(temporary, { recursive: true, force: true }));
 
-  it("does not advertise the retired app credentials commands", () => {
+  it("advertises managed secrets without restoring plaintext flags", () => {
     const execution = run(["--help", "--json"]);
     assert.equal(execution.status, 0, execution.stderr);
     const usage = String(json(execution.stdout).usage);
-    assert.doesNotMatch(usage, /marina secrets/);
+    assert.match(usage, /marina secrets set <NAME>/);
     assert.doesNotMatch(usage, /--plain/);
   });
 

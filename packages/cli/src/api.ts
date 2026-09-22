@@ -335,6 +335,37 @@ export async function revokeAppKey(
   return res.key;
 }
 
+export interface AppSecretRow {
+  name: string;
+  updated_at: string;
+}
+export async function listAppSecrets(app: string): Promise<AppSecretRow[]> {
+  const response = await request<{ secrets: AppSecretRow[] }>(
+    `/v1/apps/${encodeURIComponent(app)}/secrets`,
+  );
+  return response.secrets;
+}
+export async function setAppSecret(
+  app: string,
+  name: string,
+  value: string,
+): Promise<AppSecretRow> {
+  const response = await request<{ secret: AppSecretRow }>(
+    `/v1/apps/${encodeURIComponent(app)}/secrets/${encodeURIComponent(name)}`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ value }),
+    },
+  );
+  return response.secret;
+}
+export async function deleteAppSecret(app: string, name: string): Promise<void> {
+  await request(`/v1/apps/${encodeURIComponent(app)}/secrets/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
 /** Available developer connections, with no credentials or provider configuration. */
 export interface DeveloperConnection {
   connector: string;

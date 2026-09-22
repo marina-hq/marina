@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BridgeError, bridgeInvoke, type BridgeDependencies } from "./bridge.ts";
+import { BridgeError, bridgeInvoke, bridgeSecret, type BridgeDependencies } from "./bridge.ts";
 import type { LocalDatabase } from "./db.ts";
 import type { DevJobRunner } from "./jobs.ts";
 import type { DevManifest } from "./manifest.ts";
@@ -175,6 +175,17 @@ export function createDevBinding(context: DevBindingContext) {
               token,
               expiresAt: new Date(Date.now() + (input.expiresIn ?? 900) * 1000).toISOString(),
             });
+          }
+          case "secrets": {
+            const name =
+              request.input && typeof request.input === "object" && "name" in request.input
+                ? request.input.name
+                : undefined;
+            if (request.operation !== "get" || typeof name !== "string")
+              return failure("INVALID_INPUT", "invalid secret request");
+            if (!context.manifest.runtime.secrets?.includes(name))
+              return undeclared(`secret ${name}`, `runtime.secrets: ["${name}"]`);
+            return ok(await bridgeSecret(context.bridge, name));
           }
           default:
             return failure("UNDECLARED", `unsupported runtime service ${request.service}`);

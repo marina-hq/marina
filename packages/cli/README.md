@@ -151,6 +151,41 @@ To recreate just the local database and reapply migrations, use
 `marina db reset --yes`. This removes local database records and preserves local
 file storage. Keep `.marina/` out of source control.
 
+## Use managed secrets and outbound HTTPS
+
+Declare the secret names an app may read and the HTTPS hosts it may call in
+`marina.json`:
+
+```json
+{
+  "schema": 1,
+  "entrypoint": "src/worker.ts",
+  "runtime": { "secrets": ["PAYMENTS_API_KEY"] },
+  "egress": { "hosts": ["api.payments.example"] }
+}
+```
+
+Set and rotate values without placing them in source or deployment archives:
+
+```sh
+printf %s "$PAYMENTS_API_KEY" | marina secrets set PAYMENTS_API_KEY --app my-tool
+marina secrets --app my-tool --json
+marina secrets delete PAYMENTS_API_KEY --app my-tool
+```
+
+`marina secrets set` also accepts `--file <path>`. Listing returns names and
+update times, never values. Dynamic app code reads a declared value through
+`await marina.secrets.get("PAYMENTS_API_KEY")`; a missing value returns `null`.
+Local `marina dev` can read it when the linked app's live version declares the
+same name and the signed-in developer has edit access.
+
+Outbound calls use the standard Web `fetch()` API. `egress.hosts` is deny by
+default: omit it or use `[]` for no network access, list hostnames to allow them
+and their subdomains, or use `["*"]` to allow public HTTPS destinations. HTTP,
+private networks, and Marina endpoints remain blocked. Marina records the
+destination hostname, method, status, and outcome in runtime logs without URL
+paths, queries, headers, bodies, or secret values.
+
 ## Inspect a deployed app's database
 
 Pass an explicit `--app` slug or ID to inspect its live, app-owned database:
