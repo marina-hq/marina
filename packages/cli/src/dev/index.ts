@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { me } from "../api.ts";
-import { apiUrl, getToken } from "../config.ts";
+import { apiUrl, getToken, readLink } from "../config.ts";
 import { bold, dim, green, say } from "../output.ts";
 import { createDevBinding } from "./binding.ts";
 import { startDevControl } from "./control.ts";
@@ -80,7 +80,7 @@ export async function runDev(options: DevCommandOptions): Promise<void> {
       storage,
       database,
       jobs,
-      bridge: { apiUrl: apiUrl(), token },
+      bridge: { apiUrl: apiUrl(), token, appId: readLink(projectDir)?.app_id },
       origin: `http://localhost:${String(port)}`,
     });
 

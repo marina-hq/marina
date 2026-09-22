@@ -98,3 +98,52 @@ export async function bridgeInvoke(
   }
   return (body as { value?: unknown }).value;
 }
+
+/** Fetch one declared app secret for local dev. The developer token must have
+ * edit access, and this value is never printed or stored by the CLI. */
+export async function bridgeSecret(
+  dependencies: BridgeDependencies,
+  name: string,
+): Promise<string | null> {
+  if (!dependencies.appId)
+    throw new BridgeError({
+      code: "UNDECLARED",
+      message: "link this project to an app before reading managed secrets",
+      retryable: false,
+    });
+  let response: Response;
+  try {
+    response = await (dependencies.fetcher ?? fetch)(
+      `${dependencies.apiUrl}/v1/dev/secrets/${encodeURIComponent(dependencies.appId)}/${encodeURIComponent(name)}`,
+      {
+        headers: { authorization: `Bearer ${dependencies.token}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+  } catch {
+    throw new BridgeError({
+      code: "UNAVAILABLE",
+      message: "Marina is unreachable",
+      retryable: true,
+    });
+  }
+  if (!response.ok)
+    throw new BridgeError({
+      code: response.status === 403 ? "UNDECLARED" : "UNAVAILABLE",
+      message: "managed secret is unavailable",
+      retryable: response.status >= 500,
+    });
+  const body: unknown = await response.json().catch(() => null);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("value" in body) ||
+    (body.value !== null && typeof body.value !== "string")
+  )
+    throw new BridgeError({
+      code: "UNAVAILABLE",
+      message: "invalid secret response",
+      retryable: true,
+    });
+  return body.value as string | null;
+}

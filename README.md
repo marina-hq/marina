@@ -53,6 +53,26 @@ Set an app's portable identity in `marina.json`:
 }
 ```
 
+Dynamic apps can opt into managed secrets and outbound HTTPS in the same
+manifest:
+
+```json
+{
+  "schema": 1,
+  "entrypoint": "src/worker.ts",
+  "runtime": { "secrets": ["API_KEY"] },
+  "egress": { "hosts": ["api.example.com"] }
+}
+```
+
+Set a value with `marina secrets set API_KEY --app my-app`, read it in app code
+with `await marina.secrets.get("API_KEY")`, and call allowed hosts with the
+standard Web `fetch()` API. Egress is denied when `egress.hosts` is empty or
+omitted; `["*"]` allows public HTTPS while private networks and Marina endpoints
+remain blocked. Marina records destination hostnames and outcomes in runtime
+logs without request content or secret values. See the
+[CLI documentation](packages/cli/README.md#use-managed-secrets-and-outbound-https).
+
 ## Repository
 
 - `packages/cli` — the [@marina-cloud/cli](https://www.npmjs.com/package/@marina-cloud/cli) npm package

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import * as api from "./api.ts";
 import { ApiError } from "./api.ts";
@@ -80,6 +81,9 @@ const HELP = `${bold("marina")} — deploy internal apps
   marina keys create --name <name> --scope <scope>  issue a key; the secret is shown once
       --expires-days <days>      optional lifetime, 1–365 days
   marina keys revoke <key-id>    stop a key working within 30 seconds
+  marina secrets [--app <slug>]  list managed secret names
+  marina secrets set <NAME>      read a value from stdin (or --file) and store it encrypted
+  marina secrets delete <NAME>   remove a managed secret
   marina dev [dir]               run this app locally against Marina
       --port <port>              listen port (default: 5990)
       --schedules                run scheduled jobs on their local timers
@@ -525,6 +529,43 @@ async function keys(
   process.exit(1);
 }
 
+async function secrets(
+  action: string | undefined,
+  name: string | undefined,
+  values: { app?: string; file?: string },
+) {
+  const app = await targetApp(values.app);
+  if (!action || action === "list") {
+    const rows = await api.listAppSecrets(app);
+    for (const row of rows) say(`${terminalSafeText(row.name)}  ${dim(row.updated_at)}`);
+    if (!rows.length) say("no managed secrets");
+    result({ command: "secrets.list", app, secrets: rows });
+    return;
+  }
+  if (!name || !/^[A-Z][A-Z0-9_]{0,63}$/.test(name))
+    throw new ApiError("invalid_input", "provide a secret name such as API_KEY", 400);
+  if (action === "set") {
+    if (!values.file && process.stdin.isTTY)
+      throw new ApiError(
+        "invalid_input",
+        "pipe a secret value on stdin or pass --file <path>",
+        400,
+      );
+    const value = readFileSync(values.file ?? 0, "utf8");
+    const row = await api.setAppSecret(app, name, value);
+    say(`${green("ok")} stored ${terminalSafeText(row.name)}`);
+    result({ command: "secrets.set", app, secret: row });
+    return;
+  }
+  if (action === "delete") {
+    await api.deleteAppSecret(app, name);
+    say(`${green("ok")} removed ${terminalSafeText(name)}`);
+    result({ command: "secrets.delete", app, name });
+    return;
+  }
+  throw new ApiError("invalid_input", "use marina secrets list|set|delete", 400);
+}
+
 async function main() {
   // Parse failures happen before values.json is available. Detect this one
   // universal flag up front so even a typo still returns machine JSON.
@@ -828,6 +869,9 @@ async function main() {
       return;
     case "keys":
       await keys(positionals[1], positionals[2], values);
+      return;
+    case "secrets":
+      await secrets(positionals[1], positionals[2], values);
       return;
     case "list": {
       const apps = await api.listApps();
