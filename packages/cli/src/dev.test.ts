@@ -89,9 +89,9 @@ test("cron matcher covers stars, numbers, lists, ranges, and steps", () => {
   assert.equal(cronMatches("bad cron", at("2026-09-01T00:00:00Z")), false);
 });
 
-test("local storage round-trips objects with metadata and lists with cursors", () => {
+test("local storage round-trips objects with metadata and lists with cursors", async () => {
   const store = new LocalStorage(mkdtempSync(join(tmpdir(), "marina-dev-storage-")));
-  const put = store.put({
+  const put = await store.put({
     key: "reports/q3.txt",
     body: "hello",
     contentType: "text/plain",
@@ -101,12 +101,12 @@ test("local storage round-trips objects with metadata and lists with cursors", (
   assert.equal(put.contentType, "text/plain");
   const got = store.get("reports/q3.txt");
   assert.ok(got);
-  assert.equal(Buffer.from(got.body).toString(), "hello");
+  assert.equal(Buffer.from(got.body as Uint8Array).toString(), "hello");
   assert.deepEqual(got.metadata, { source: "test" });
   assert.equal(store.get("missing.txt"), null);
 
-  store.put({ key: "reports/q4.txt", body: "x" });
-  store.put({ key: "notes.md", body: "y" });
+  await store.put({ key: "reports/q4.txt", body: "x" });
+  await store.put({ key: "notes.md", body: "y" });
   const page = store.list({ prefix: "reports/", limit: 1 });
   assert.equal(page.objects.length, 1);
   assert.equal(page.truncated, true);
@@ -116,7 +116,7 @@ test("local storage round-trips objects with metadata and lists with cursors", (
 
   store.delete("notes.md");
   assert.equal(store.get("notes.md"), null);
-  assert.throws(() => store.put({ key: "../escape.txt", body: "no" }), /escapes/);
+  await assert.rejects(store.put({ key: "../escape.txt", body: "no" }), /escapes/);
 });
 
 test("dev chrome injects before </body> and appends otherwise", () => {
@@ -395,4 +395,95 @@ test("local manifests normalize legacy operations and reject ambiguous authority
     null,
   ])
     assert.throws(() => read(binding));
+});
+
+test("local grants keep the production shape and require the manifest declaration", async () => {
+  const base = {
+    storage: null,
+    database: null,
+    jobs: null,
+    bridge: { apiUrl: "https://api.example.test", token: "token-1" },
+    origin: "http://localhost:5990",
+  };
+  const request = {
+    protocolVersion: 1,
+    requestId: "grant-1",
+    service: "grants",
+    operation: "create",
+    input: { path: "/api/builds/42/manifest.plist", methods: ["GET"], expiresIn: 600 },
+  };
+  const declared = createDevBinding({
+    ...base,
+    manifest: { entrypoint: "app.ts", runtime: { grants: "v1" }, jobs: {}, connections: {} },
+  });
+  const granted = await declared.invoke(request);
+  assert.equal(granted.ok, true);
+  if (granted.ok) {
+    const value = granted.value as { url: string; token: string };
+    const url = new URL(value.url);
+    assert.equal(url.origin, "http://localhost:5990");
+    assert.equal(url.pathname, "/api/builds/42/manifest.plist");
+    assert.equal(url.searchParams.get("marina_grant"), value.token);
+  }
+
+  for (const path of [
+    "//other.example/x",
+    "/api/../admin",
+    "/__marina/chrome",
+    "/api/%2e%2e/x",
+    `/${"a".repeat(1024)}`,
+  ]) {
+    const refused = await declared.invoke({ ...request, input: { ...request.input, path } });
+    assert.equal(refused.ok, false, path);
+  }
+
+  const undeclared = createDevBinding({
+    ...base,
+    manifest: { entrypoint: "app.ts", runtime: {}, jobs: {}, connections: {} },
+  });
+  const denied = await undeclared.invoke(request);
+  assert.equal(denied.ok, false);
+  if (!denied.ok) assert.match(denied.error.message, /runtime\.grants: "v1"/);
+});
+
+test("local storage matches production ranges, streams, head, and checksums", async () => {
+  const { createHash } = await import("node:crypto");
+  const store = new LocalStorage(mkdtempSync(join(tmpdir(), "marina-dev-storage-")));
+  await store.put({
+    key: "builds/1",
+    body: new Response("0123456789").body as ReadableStream<Uint8Array>,
+    size: 10,
+    sha256: createHash("sha256").update("0123456789").digest("hex"),
+  });
+  assert.equal(store.head("builds/1")?.size, 10);
+  assert.equal(store.head("builds/none"), null);
+
+  const ranged = store.get("builds/1", { range: { offset: 2, length: 3 } });
+  assert.equal(Buffer.from(ranged?.body as Uint8Array).toString(), "234");
+  assert.deepEqual(ranged?.range, { offset: 2, length: 3 });
+  const suffix = store.get("builds/1", { range: { suffix: 4 }, stream: true });
+  assert.equal(await new Response(suffix?.body as ReadableStream).text(), "6789");
+  assert.throws(() => store.get("builds/1", { range: { offset: 10 } }), /beyond the object/);
+
+  await assert.rejects(
+    store.put({ key: "builds/2", body: "tampered", sha256: "0".repeat(64) }),
+    /does not match sha256/,
+  );
+  await assert.rejects(
+    store.put({
+      key: "builds/3",
+      body: new Response("short").body as ReadableStream<Uint8Array>,
+      size: 50,
+    }),
+    /length does not match size/,
+  );
+  await assert.rejects(
+    store.put({
+      key: "builds/4",
+      body: new Response("longer than declared").body as ReadableStream<Uint8Array>,
+      size: 4,
+    }),
+    /length does not match size/,
+  );
+  assert.equal(store.head("builds/4"), null);
 });

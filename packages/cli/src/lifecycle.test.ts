@@ -41,6 +41,52 @@ function assertTerminalSafeJson(value: string): void {
 }
 
 describe("CLI profile and skill lifecycle", () => {
+  it("manages app keys and shows the secret only in the creation result", () => {
+    const environment = {
+      MARINA_TOKEN: "mar_test_only",
+      NODE_OPTIONS: `--import=${resolve("src/mock-fetch.test-fixture.mjs")}`,
+      MARINA_DISABLE_CONTROL_PLANE_DISCOVERY: "0",
+    };
+    const created = run(
+      [
+        "keys",
+        "create",
+        "--app",
+        "builds",
+        "--name",
+        "GitHub Actions",
+        "--scope",
+        "builds:read",
+        "--scope",
+        "builds:publish",
+        "--expires-days",
+        "30",
+        "--json",
+      ],
+      environment,
+    );
+    assert.equal(created.status, 0, created.stderr);
+    const key = json(created.stdout).key as Record<string, unknown>;
+    assert.deepEqual(key.scopes, ["builds:read", "builds:publish"]);
+    assert.equal(key.token, "mak_onlyonce");
+
+    const listed = run(["keys", "--app", "builds", "--json"], environment);
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.equal(listed.stdout.includes("onlyonce"), false);
+    assert.equal((json(listed.stdout).keys as unknown[]).length, 1);
+
+    const revoked = run(["keys", "revoke", "key-1", "--app", "builds", "--json"], environment);
+    assert.equal(revoked.status, 0, revoked.stderr);
+    assert.equal((json(revoked.stdout).key as Record<string, unknown>).id, "key-1");
+
+    const missingScope = run(
+      ["keys", "create", "--app", "builds", "--name", "ci", "--json"],
+      environment,
+    );
+    assert.equal(missingScope.status, 1);
+    assert.match(missingScope.stdout, /--scope/);
+  });
+
   it("inspects an explicit deployed app through the API and preserves query parameters", () => {
     const environment = {
       MARINA_TOKEN: "mar_test_only",

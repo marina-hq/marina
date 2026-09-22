@@ -183,6 +183,39 @@ even in a linked project. `--dir` and `--schema` are local options. Writes,
 migration commands, and reset are local only; deploy new migrations through
 the normal version review and publishing workflow.
 
+## Give automation access with app keys
+
+An app key lets CI or another non-browser caller call one app with scopes the
+app declares. Declare them in `marina.json`, then deploy:
+
+```json
+{
+  "schema": 1,
+  "entrypoint": "src/worker.ts",
+  "access": {
+    "scopes": {
+      "builds:read": "Read the previous successful build",
+      "builds:publish": "Upload artifacts and publish builds"
+    }
+  }
+}
+```
+
+A workspace admin or the app's creator manages its keys:
+
+```sh
+marina keys create --app my-tool --name "GitHub Actions" --scope builds:read --scope builds:publish --json
+marina keys --app my-tool --json
+marina keys revoke <key-id> --app my-tool
+```
+
+`create` returns the secret once; store it in the caller's secret store.
+`--expires-days <1-365>` sets an optional lifetime. Callers send
+`Authorization: Bearer <key>` to the app's address. The app receives
+`x-platform-principal: app-key` and the key's scopes in `x-platform-scopes`, and
+checks the scope each endpoint needs. A key cannot open other apps or deploy,
+and a revoked key stops working within 30 seconds.
+
 ## App manifest
 
 Add `marina.json` at the project root to give the app a portable name and icon:

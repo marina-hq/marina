@@ -81,6 +81,7 @@ export async function runDev(options: DevCommandOptions): Promise<void> {
       database,
       jobs,
       bridge: { apiUrl: apiUrl(), token },
+      origin: `http://localhost:${String(port)}`,
     });
 
     host = await startDevHost({

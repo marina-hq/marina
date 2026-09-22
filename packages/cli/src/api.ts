@@ -292,6 +292,49 @@ export async function restoreVersion(versionId: string): Promise<VersionRow> {
   return res.version;
 }
 
+/** An app key as listed: the secret itself is shown only once, at creation. */
+export interface AppKeyRow {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_at: string;
+  expires_at: string | null;
+  last_used_at?: string | null;
+  created_by_name?: string | null;
+}
+
+export async function listAppKeys(app: string): Promise<AppKeyRow[]> {
+  const res = await request<{ keys: AppKeyRow[] }>(`/v1/apps/${encodeURIComponent(app)}/keys`);
+  return res.keys;
+}
+
+export async function createAppKey(
+  app: string,
+  input: { name: string; scopes: string[]; expires_in_days?: number },
+): Promise<AppKeyRow & { token: string }> {
+  const res = await request<{ key: AppKeyRow & { token: string } }>(
+    `/v1/apps/${encodeURIComponent(app)}/keys`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  return res.key;
+}
+
+export async function revokeAppKey(
+  app: string,
+  keyId: string,
+): Promise<{ id: string; name: string; prefix: string }> {
+  const res = await request<{ key: { id: string; name: string; prefix: string } }>(
+    `/v1/apps/${encodeURIComponent(app)}/keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+  return res.key;
+}
+
 /** Available developer connections, with no credentials or provider configuration. */
 export interface DeveloperConnection {
   connector: string;

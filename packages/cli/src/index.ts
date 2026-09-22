@@ -76,6 +76,10 @@ const HELP = `${bold("marina")} — deploy internal apps
       --cursor <cursor>          continue from a prior result
   marina versions [--app <slug>] version history
   marina rollback [--to <hash>]  publish a previous version again
+  marina keys [--app <slug>]     app keys that let CI call this app with scoped access
+  marina keys create --name <name> --scope <scope>  issue a key; the secret is shown once
+      --expires-days <days>      optional lifetime, 1–365 days
+  marina keys revoke <key-id>    stop a key working within 30 seconds
   marina dev [dir]               run this app locally against Marina
       --port <port>              listen port (default: 5990)
       --schedules                run scheduled jobs on their local timers
@@ -453,6 +457,64 @@ async function rollback(appFlag: string | undefined, to: string | undefined) {
   });
 }
 
+/** App keys: bearer credentials bound to one app and the scopes its
+ * marina.json declares. Managing them requires a workspace admin or the
+ * app's creator. */
+async function keys(
+  action: string | undefined,
+  keyId: string | undefined,
+  values: { app?: string; name?: string; scope?: string[]; "expires-days"?: string },
+) {
+  const app = await targetApp(values.app);
+  if (action === undefined || action === "list") {
+    const rows = await api.listAppKeys(app);
+    if (rows.length === 0) say("no app keys — `marina keys create --name <name> --scope <scope>`");
+    for (const key of rows) {
+      const expires = key.expires_at ? ` expires ${key.expires_at.slice(0, 10)}` : "";
+      say(
+        `${bold(key.name)} ${dim(key.prefix)}…  ${key.scopes.join(" ")}${dim(expires)}  ${dim(key.id)}`,
+      );
+    }
+    result({ command: "keys", app, keys: rows });
+    return;
+  }
+  if (action === "create") {
+    if (!values.name || !values.scope?.length) {
+      failure("invalid_input", "pass --name <name> and at least one --scope <scope>");
+      process.exit(1);
+    }
+    const days = values["expires-days"];
+    if (days !== undefined && !/^[0-9]+$/.test(days)) {
+      failure("invalid_input", "--expires-days must be a whole number of days");
+      process.exit(1);
+    }
+    const created = await api.createAppKey(app, {
+      name: values.name,
+      scopes: values.scope,
+      ...(days === undefined ? {} : { expires_in_days: Number(days) }),
+    });
+    say(`${green("ok")} created ${bold(created.name)} (${created.scopes.join(" ")})`);
+    say(`   ${created.token}`);
+    say(
+      dim("   Copy it now; Marina never shows it again. Send it as `Authorization: Bearer <key>`."),
+    );
+    result({ command: "keys create", app, key: created });
+    return;
+  }
+  if (action === "revoke") {
+    if (!keyId) {
+      failure("invalid_input", "pass the key id to revoke: `marina keys revoke <key-id>`");
+      process.exit(1);
+    }
+    const revoked = await api.revokeAppKey(app, keyId);
+    say(`${green("ok")} revoked ${bold(revoked.name)}; it stops working within 30 seconds`);
+    result({ command: "keys revoke", app, key: revoked });
+    return;
+  }
+  failure("invalid_input", `unknown keys action "${action}" — use list, create, or revoke`);
+  process.exit(1);
+}
+
 async function main() {
   // Parse failures happen before values.json is available. Detect this one
   // universal flag up front so even a typo still returns machine JSON.
@@ -461,6 +523,8 @@ async function main() {
     allowPositionals: true,
     options: {
       name: { type: "string" },
+      scope: { type: "string", multiple: true },
+      "expires-days": { type: "string" },
       app: { type: "string" },
       to: { type: "string" },
       level: { type: "string" },
@@ -751,6 +815,9 @@ async function main() {
       return;
     case "rollback":
       await rollback(values.app, values.to);
+      return;
+    case "keys":
+      await keys(positionals[1], positionals[2], values);
       return;
     case "list": {
       const apps = await api.listApps();
